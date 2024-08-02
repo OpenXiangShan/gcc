@@ -29,7 +29,11 @@
 (define_cpu_unit "vxu_ooo_multicycle" "vector_ooo")
 
 (define_insn_reservation "vec_load" 6
-  (eq_attr "type" "vlde,vldm,vlds,vldux,vldox,vldff,vldr")
+  (eq_attr "type" "vlde,vldm,vlds,vldux,vldox,vldr")
+  "vxu_ooo_issue,vxu_ooo_alu")
+
+(define_insn_reservation "vec_load_ff" 1000
+  (eq_attr "type" "vldff")
   "vxu_ooo_issue,vxu_ooo_alu")
 
 (define_insn_reservation "vec_store" 6
@@ -37,7 +41,7 @@
   "vxu_ooo_issue,vxu_ooo_alu")
 
 ;; Vector segment loads/stores.
-(define_insn_reservation "vec_loadstore_seg" 10
+(define_insn_reservation "vec_loadstore_seg" 100
   (eq_attr "type" "vlsegde,vlsegds,vlsegdux,vlsegdox,vlsegdff,\
 		   vssegte,vssegts,vssegtux,vssegtox")
   "vxu_ooo_issue,vxu_ooo_alu")
