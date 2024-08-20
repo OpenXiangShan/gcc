@@ -612,13 +612,6 @@ riscv_expand_strlen_scalar (rtx result, rtx src, rtx align)
 bool
 riscv_expand_strlen (rtx result, rtx src, rtx search_char, rtx align)
 {
-  if (TARGET_VECTOR && stringop_strategy & STRATEGY_VECTOR)
-    {
-      riscv_vector::expand_rawmemchr (E_QImode, result, src, search_char,
-				      /* strlen */ true);
-      return true;
-    }
-
   gcc_assert (search_char == const0_rtx);
 
   if ((TARGET_ZBB || TARGET_XTHEADBB) && stringop_strategy & STRATEGY_SCALAR)

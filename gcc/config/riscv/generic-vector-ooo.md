@@ -32,7 +32,7 @@
   (eq_attr "type" "vlde,vldm,vlds,vldux,vldox,vldr")
   "vxu_ooo_issue,vxu_ooo_alu")
 
-(define_insn_reservation "vec_load_ff" 1000
+(define_insn_reservation "vec_load_ff" 10000
   (eq_attr "type" "vldff")
   "vxu_ooo_issue,vxu_ooo_alu")
 
