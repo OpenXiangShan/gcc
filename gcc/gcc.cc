@@ -11197,15 +11197,17 @@ path_prefix_reset (path_prefix *prefix)
   prefix->max_len = 0;
 }
 
-/* The function takes 3 arguments: OPTION name, file name and location
-   where we search for Fortran modules.
-   When the FILE is found by find_file, return OPTION=path_to_file.  */
+/* The first three arguments are OPTION, a preferred file name and the
+   location where we search for Fortran modules.  Additional arguments are
+   fallback file names, in priority order.  Search all locations for each
+   file before trying the next name, and return OPTION followed by its path.
+   An existing empty file is a valid contract and suppresses fallback.  */
 
 static const char *
 find_fortran_preinclude_file (int argc, const char **argv)
 {
   char *result = NULL;
-  if (argc != 3)
+  if (argc < 3)
     return NULL;
 
   struct path_prefix prefixes = { 0, 0, "preinclude" };
@@ -11224,14 +11226,19 @@ find_fortran_preinclude_file (int argc, const char **argv)
 			     NULL, 0, 0, 0);
 #endif
 
-  const char *path = find_a_file (&include_prefixes, argv[1], R_OK, false);
-  if (path != NULL)
-    result = concat (argv[0], path, NULL);
-  else
+  for (int i = 1; i < argc; ++i)
     {
-      path = find_a_file (&prefixes, argv[1], R_OK, false);
+      /* argv[2] is the directory, not a candidate file name.  */
+      if (i == 2)
+	continue;
+      const char *path = find_a_file (&include_prefixes, argv[i], R_OK, false);
+      if (path == NULL)
+	path = find_a_file (&prefixes, argv[i], R_OK, false);
       if (path != NULL)
-	result = concat (argv[0], path, NULL);
+	{
+	  result = concat (argv[0], path, NULL);
+	  break;
+	}
     }
 
   path_prefix_reset (&prefixes);

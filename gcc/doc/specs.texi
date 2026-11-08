@@ -423,6 +423,21 @@ usage:
 -l%:if-exists-then-else(%:getenv(VSB_DIR rtnet.h) rtnet net)
 @end smallexample
 
+@item @code{fortran-preinclude-file}
+The first three arguments are an option prefix, a preferred file name,
+and a directory in which to search for a Fortran preinclude file.  Optional
+additional arguments name fallback files, in priority order.  For each name,
+GCC searches the include-prefix locations, the specified directory and the
+configured compiler and system Fortran include locations before trying the
+next name.  System locations are interpreted relative to the selected
+sysroot.  The function returns the option prefix concatenated with the first
+readable file's path, or nothing if no candidate is found.  A readable empty
+file is selected normally and prevents fallback.
+
+@smallexample
+%:fortran-preinclude-file(-fpre-include= preferred.h finclude%s/ fallback.h)
+@end smallexample
+
 @item @code{sanitize}
 The @code{sanitize} spec function takes no arguments.  It returns non-NULL if
 any address, thread or undefined behavior sanitizers are active.

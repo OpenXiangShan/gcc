@@ -67,11 +67,11 @@ along with GCC; see the file COPYING3.  If not see
    "/lib/ "					\
    "/usr/lib/ "
 
-/* This versioned contract is installed only when the matching library offers
-   both unmasked log entries: _ZGV2N4v_log and _ZGV2Nxv_log.  Missing files
-   intentionally yield scalar Fortran code, including with older libraries.  */
+/* Prefer the six-family unmasked m2 contract.  An older library can provide
+   the log-only v1 contract instead.  An installed, empty v2 file deliberately
+   disables SIMD declarations and must not fall back to a stale v1 file.  */
 #undef TARGET_F951_OPTIONS
 #define TARGET_F951_OPTIONS "%{!nostdinc:\\
-  %:fortran-preinclude-file(-fpre-include= math-vector-fortran-rvv-log-m2-v1.h finclude%s/)}"
+  %:fortran-preinclude-file(-fpre-include= math-vector-fortran-rvv-m2-v2.h finclude%s/ math-vector-fortran-rvv-log-m2-v1.h)}"
 
 #define RISCV_USE_CUSTOMISED_MULTI_LIB select_by_abi
