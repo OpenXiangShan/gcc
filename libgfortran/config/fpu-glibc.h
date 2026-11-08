@@ -39,6 +39,16 @@ _Static_assert (sizeof(fenv_t) <= (size_t) GFC_FPE_STATE_BUFFER_SIZE,
 
 void set_fpu_trap_exceptions (int trap, int notrap)
 {
+#ifdef __riscv
+  /* RISC-V has accrued exception flags, but no synchronous floating-point
+     traps.  This is an architectural property, not a libc feature probe.
+     In particular, do not call the GNU libc trap stubs or clear flags when
+     a program merely asks to disable halting.  */
+  (void) notrap;
+  if (trap != 0)
+    estr_write ("Fortran runtime warning: Floating-point synchronous exceptions "
+		"are not supported on RISC-V.\n");
+#else
   int mode_set = 0, mode_clr = 0;
 
 #ifdef FE_INVALID
@@ -89,12 +99,16 @@ void set_fpu_trap_exceptions (int trap, int notrap)
 
   feenableexcept (mode_set);
   fedisableexcept (mode_clr);
+#endif
 }
 
 
 int
 get_fpu_trap_exceptions (void)
 {
+#ifdef __riscv
+  return 0;
+#else
   int exceptions = fegetexcept ();
   int res = 0;
 
@@ -123,18 +137,27 @@ get_fpu_trap_exceptions (void)
 #endif
 
   return res;
+#endif
 }
 
 
 int
 support_fpu_trap (int flag)
 {
+#ifdef __riscv
+  (void) flag;
+  return 0;
+#else
   return support_fpu_flag (flag);
+#endif
 }
 
 
 void set_fpu (void)
 {
+#ifdef __riscv
+  set_fpu_trap_exceptions (options.fpe, 0);
+#else
 #ifndef FE_INVALID
   if (options.fpe & GFC_FPE_INVALID)
     estr_write ("Fortran runtime warning: IEEE 'invalid operation' "
@@ -172,6 +195,7 @@ void set_fpu (void)
 #endif
 
   set_fpu_trap_exceptions (options.fpe, 0);
+#endif
 }
 
 

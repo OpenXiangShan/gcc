@@ -9944,17 +9944,24 @@ simplify_ieee_selected_real_kind (gfc_expr *expr)
   return gfc_simplify_selected_real_kind (p, q, rdx);
 }
 
+bool matches_ieee_function_name (gfc_symbol *, const char *);
+
 gfc_expr *
 simplify_ieee_support (gfc_expr *expr)
 {
-  /* We consider that if the IEEE modules are loaded, we have full support
-     for flags, halting and rounding, which are the three functions
-     (IEEE_SUPPORT_{FLAG,HALTING,ROUNDING}) allowed in constant
-     expressions. One day, we will need libgfortran to detect support and
-     communicate it back to us, allowing for partial support.  */
+  /* IEEE_SUPPORT_{FLAG,HALTING,ROUNDING} are allowed in constant
+     expressions.  Preserve the historical assumption of full support
+     unless the target explicitly rules out synchronous exception traps.
+     Exception flags and rounding do not imply halting support.  */
+  bool supported = true;
+#ifdef GFC_TARGET_SUPPORTS_IEEE_HALTING
+  if (matches_ieee_function_name (expr->symtree->n.sym,
+				  "ieee_support_halting"))
+    supported = GFC_TARGET_SUPPORTS_IEEE_HALTING;
+#endif
 
   return gfc_get_logical_expr (gfc_default_logical_kind, &expr->where,
-			       true);
+			       supported);
 }
 
 bool

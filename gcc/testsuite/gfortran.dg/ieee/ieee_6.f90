@@ -33,7 +33,7 @@
 
   call ieee_set_rounding_mode(ieee_to_zero)
   call ieee_set_flag(ieee_underflow, .true.)
-  call ieee_set_halting_mode(ieee_overflow, .true.)
+  if (haltworks) call ieee_set_halting_mode(ieee_overflow, .true.)
   x = -1
   x = sqrt(x)
   if (.not. ieee_is_nan(x)) STOP 4

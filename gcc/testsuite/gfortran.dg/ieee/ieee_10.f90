@@ -1,5 +1,6 @@
 ! { dg-do run }
 ! { dg-additional-options "-ffpe-trap=overflow,invalid" }
+! { dg-output "Fortran runtime warning: Floating-point synchronous exceptions are not supported on RISC-V[.]" { target { riscv*-*-linux* } } }
 !
 ! Use dg-additional-options rather than dg-options to avoid overwriting the
 ! default IEEE options which are passed by ieee.exp and necessary.

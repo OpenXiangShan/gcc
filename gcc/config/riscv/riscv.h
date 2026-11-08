@@ -25,6 +25,11 @@ along with GCC; see the file COPYING3.  If not see
 #include <stdbool.h>
 #include "config/riscv/riscv-opts.h"
 
+/* IEEE exception flags and rounding modes are supported, but the RISC-V
+   floating-point architecture has no synchronous exception traps.  Keep
+   Fortran initialization expressions consistent with libgfortran.  */
+#define GFC_TARGET_SUPPORTS_IEEE_HALTING 0
+
 #define SWITCHABLE_TARGET 1
 
 /* Target CPU builtins.  */
