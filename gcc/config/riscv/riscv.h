@@ -801,13 +801,16 @@ typedef struct {
   /* True only for the compiler-created libmvec SIMD clone signature.  */
   bool simd_clone_p;
 
-  /* Mode proven by the exact homogeneous unary/binary RVV prototype, or
-     VOIDmode if no such proof exists.  Keep the storage integral: libgcc
-     includes this header from C before machine modes are declared.  */
-  unsigned int homogeneous_rvv_m2_mode;
+  /* Data-vector mode proven by an exact homogeneous unary/binary RVV
+     prototype, or VOIDmode if no such proof exists.  Keep the storage
+     integral: libgcc includes this header from C before machine modes are
+     declared.  */
+  unsigned int homogeneous_rvv_abi_mode;
 
-  /* The prototype is exactly mask32, f64m2 -> f64m2.  */
-  bool mask_rvv_f64m2_p;
+  /* Data-vector and mask modes proven by an exact mask-first masked RVV
+     prototype, or VOIDmode if no such proof exists.  */
+  unsigned int mask_rvv_abi_data_mode;
+  unsigned int mask_rvv_abi_mask_mode;
 
   unsigned int abi_vlen;
 

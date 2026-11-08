@@ -3480,8 +3480,23 @@ struct gfc_vect_builtin_tuple
   gfc_simd_clause simd_type;
 };
 
+/* Information about a middle-end built-in that should be vectorized.  */
+struct gfc_vect_builtin_info
+{
+  gfc_vect_builtin_info ()
+    : clauses (0), abi_explicit (false), abi_mask (0) {}
+
+  /* Bitwise OR of the SIMD clauses attached to the built-in.  */
+  unsigned clauses;
+  /* True if a riscv_simd_math_abi_v1 clause was seen, even for mask 0.  */
+  bool abi_explicit;
+  /* Bitwise AND of all explicitly specified ABI masks.  */
+  unsigned abi_mask;
+};
+
 /* Map of middle-end built-ins that should be vectorized.  */
-extern hash_map<nofree_string_hash, int> *gfc_vectorized_builtins;
+extern hash_map<nofree_string_hash, gfc_vect_builtin_info>
+  *gfc_vectorized_builtins;
 
 /* Handling Parameterized Derived Types  */
 bool gfc_insert_parameter_exprs (gfc_expr *, gfc_actual_arglist *);

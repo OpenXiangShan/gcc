@@ -67,11 +67,11 @@ along with GCC; see the file COPYING3.  If not see
    "/lib/ "					\
    "/usr/lib/ "
 
-/* Prefer the six-family unmasked m2 contract.  An older library can provide
-   the log-only v1 contract instead.  An installed, empty v2 file deliberately
-   disables SIMD declarations and must not fall back to a stale v1 file.  */
+/* Prefer the per-function m1/m2 ABI contract, then the unmasked m2 family
+   contract, then log-only v1.  An installed empty preferred file deliberately
+   disables SIMD declarations and must not fall back to an older contract.  */
 #undef TARGET_F951_OPTIONS
 #define TARGET_F951_OPTIONS "%{!nostdinc:\\
-  %:fortran-preinclude-file(-fpre-include= math-vector-fortran-rvv-m2-v2.h finclude%s/ math-vector-fortran-rvv-log-m2-v1.h)}"
+  %:fortran-preinclude-file(-fpre-include= math-vector-fortran-rvv-m1-v3.h finclude%s/ math-vector-fortran-rvv-m2-v2.h math-vector-fortran-rvv-log-m2-v1.h)}"
 
 #define RISCV_USE_CUSTOMISED_MULTI_LIB select_by_abi

@@ -770,6 +770,35 @@ lto_symtab_merge_decls_2 (symtab_node *first, bool diagnosed_p)
   mismatches.release ();
 }
 
+/* Let the target combine target-specific attributes of all declarations
+   that LTO is about to resolve to PREVAILING.  This runs before the late
+   IPA SIMD-clone pass, so masks combined here are visible when clones are
+   created and mangled.  The hook is deliberately target-neutral: targets
+   that do not need special LTO attribute merging keep the prevailing
+   declaration's attributes unchanged.  */
+
+static void
+lto_symtab_merge_target_attributes (symtab_node *prevailing)
+{
+  if (!targetm.merge_lto_decl_attributes
+      || TREE_CODE (prevailing->decl) != FUNCTION_DECL)
+    return;
+
+  for (symtab_node *e = prevailing->next_sharing_asm_name; e;
+       e = e->next_sharing_asm_name)
+    {
+      /* Streaming may unify declarations while leaving distinct symbol
+	 nodes.  A declaration already contains its own target metadata.  */
+      if (e->decl == prevailing->decl
+	  || TREE_CODE (e->decl) != FUNCTION_DECL)
+	continue;
+      tree merged
+	= targetm.merge_lto_decl_attributes (prevailing->decl, e->decl);
+      if (merged)
+	DECL_ATTRIBUTES (prevailing->decl) = merged;
+    }
+}
+
 /* Helper to process the decl chain for the symbol table entry *SLOT.  */
 
 static void
@@ -870,6 +899,11 @@ lto_symtab_merge_decls_1 (symtab_node *first)
   if (diagnosed_p)
       inform (DECL_SOURCE_LOCATION (prevailing->decl),
 	      "previously declared here");
+
+  /* Combine target attributes before the chain is collapsed.  The SIMD
+     clone pass runs later, after partitioning, and must see the combined
+     declaration metadata.  */
+  lto_symtab_merge_target_attributes (prevailing);
 
   /* Merge the chain to the single prevailing decl and diagnose
      mismatches.  */

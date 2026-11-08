@@ -125,6 +125,10 @@ riscv_cpu_cpp_builtins (cpp_reader *pfile)
   if (TARGET_VECTOR && TARGET_VECTOR_ELEN_FP_64 && TARGET_DOUBLE_FLOAT
       && riscv_abi == ABI_LP64D && TARGET_MIN_VLEN == 128)
     {
+      /* Header gate for the versioned per-function mask metadata.  This
+	 advertises compiler syntax support, not the presence of an m1
+	 library; the installed header still decides which entries exist.  */
+      builtin_define_with_int_value ("__riscv_simd_math_abi_v1", 1);
       if (rvv_vector_bits == RVV_VECTOR_BITS_ZVL)
 	{
 	  builtin_define_with_int_value ("__riscv_simd_math_log_m2", 1);

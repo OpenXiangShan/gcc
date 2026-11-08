@@ -280,6 +280,23 @@ simd_clone_struct_copy (struct cgraph_simd_clone *to,
 			* sizeof (struct cgraph_simd_clone_arg))));
 }
 
+/* Allocate a fresh clone description for one of the two branch variants from
+   PRISTINE.  PRISTINE must not carry a mask argument, so that
+   simd_clone_struct_copy copies every original argument.  The caller can
+   then let the target initialize the description for a particular ISA
+   variant without modifying PRISTINE or a previously adjusted clone.  */
+
+static inline struct cgraph_simd_clone *
+simd_clone_branch_clone (struct cgraph_simd_clone *pristine, bool inbranch)
+{
+  gcc_assert (!pristine->inbranch);
+  struct cgraph_simd_clone *clone
+    = simd_clone_struct_alloc (pristine->nargs + 1);
+  simd_clone_struct_copy (clone, pristine);
+  clone->inbranch = inbranch;
+  return clone;
+}
+
 /* Fill an empty vector ARGS with parameter types of function FNDECL.  This
    uses TYPE_ARG_TYPES if available, otherwise falls back to types of
    DECL_ARGUMENTS types.  */
@@ -2013,101 +2030,94 @@ expand_simd_clones (struct cgraph_node *node)
       if (clone_info == NULL)
 	continue;
 
-      poly_uint64 orig_simdlen = clone_info->simdlen;
+      bool specified_inbranch = clone_info->inbranch;
       tree base_type = simd_clone_compute_base_data_type (node, clone_info);
 
-      /* The target can return 0 (no simd clones should be created),
-	 1 (just one ISA of simd clones should be created) or higher
-	 count of ISA variants.  In that case, clone_info is initialized
-	 for the first ISA variant.  */
-      int count
-	= targetm.simd_clone.compute_vecsize_and_simdlen (node, clone_info,
-							  base_type, 0,
-							  explicit_p);
-      if (count == 0)
-	continue;
+      /* Keep a pristine description with no mask argument.  Every branch
+	 variant and every ISA variant starts from it, so the original
+	 argument types and clauses are preserved even after an earlier
+	 clone's signature was adjusted.  */
+      clone_info->inbranch = 0;
 
-      /* Loop over all COUNT ISA variants, and if !INBRANCH_CLAUSE_SPECIFIED,
-	 also create one inbranch and one !inbranch clone of it.  */
-      for (int i = 0; i < count * 2; i++)
+      /* The target returns the number of ISA variants for one branch.
+	 Enumerate the two branches independently: a branch with no variants
+	 must not prevent clones for the other branch, and the two branches
+	 need not have the same number of variants.  */
+      for (int branch = 0; branch < 2; branch++)
 	{
-	  struct cgraph_simd_clone *clone = clone_info;
-	  if (inbranch_clause_specified && (i & 1) != 0)
+	  if (inbranch_clause_specified && branch != (int) specified_inbranch)
 	    continue;
 
-	  if (i != 0)
+	  struct cgraph_simd_clone *first
+	    = simd_clone_branch_clone (clone_info, branch != 0);
+	  int count
+	    = targetm.simd_clone.compute_vecsize_and_simdlen (node, first,
+							      base_type, 0,
+							      explicit_p);
+	  if (count == 0)
+	    continue;
+
+	  for (int j = 0; j < count; j++)
 	    {
-	      clone = simd_clone_struct_alloc (clone_info->nargs
-					       + ((i & 1) != 0));
-	      simd_clone_struct_copy (clone, clone_info);
-	      /* Undo changes targetm.simd_clone.compute_vecsize_and_simdlen
-		 and simd_clone_adjust_argument_types did to the first
-		 clone's info.  */
-	      clone->nargs -= clone_info->inbranch;
-	      clone->simdlen = orig_simdlen;
-	      /* Let the target examine the actual branch variant and reject
-		 it before it is mangled or its signature is adjusted.  */
-	      if ((i & 1) != 0)
-		clone->inbranch = 1;
-	      if (!targetm.simd_clone.compute_vecsize_and_simdlen (node, clone,
-								  base_type,
-								  i / 2,
-								  explicit_p))
+	      struct cgraph_simd_clone *clone;
+	      if (j == 0)
+		clone = first;
+	      else
+		{
+		  clone = simd_clone_branch_clone (clone_info, branch != 0);
+		  if (!targetm.simd_clone.compute_vecsize_and_simdlen (node,
+								       clone,
+								       base_type,
+								       j,
+								       explicit_p))
+		    continue;
+		}
+
+	      /* simd_clone_mangle might fail if such a clone has been created
+		 already.  */
+	      tree id = simd_clone_mangle (node, clone);
+	      if (id == NULL_TREE)
 		continue;
-	    }
 
-	  /* simd_clone_mangle might fail if such a clone has been created
-	     already.  */
-	  tree id = simd_clone_mangle (node, clone);
-	  if (id == NULL_TREE)
-	    {
-	      if (i == 0)
-		clone->nargs += clone->inbranch;
-	      continue;
-	    }
+	      /* Only when we are sure we want to create the clone actually
+		 clone the function (or definitions) or create another
+		 extern FUNCTION_DECL (for prototypes without definitions).  */
+	      struct cgraph_node *n = simd_clone_create (node, !explicit_p);
+	      if (n == NULL)
+		continue;
 
-	  /* Only when we are sure we want to create the clone actually
-	     clone the function (or definitions) or create another
-	     extern FUNCTION_DECL (for prototypes without definitions).  */
-	  struct cgraph_node *n = simd_clone_create (node, !explicit_p);
-	  if (n == NULL)
-	    {
-	      if (i == 0)
-		clone->nargs += clone->inbranch;
-	      continue;
+	      n->simdclone = clone;
+	      clone->origin = node;
+	      clone->next_clone = NULL;
+	      if (node->simd_clones == NULL)
+		{
+		  clone->prev_clone = n;
+		  node->simd_clones = n;
+		}
+	      else
+		{
+		  clone->prev_clone = node->simd_clones->simdclone->prev_clone;
+		  clone->prev_clone->simdclone->next_clone = n;
+		  node->simd_clones->simdclone->prev_clone = n;
+		}
+	      symtab->change_decl_assembler_name (n->decl, id);
+	      /* And finally adjust the return type, parameters and for
+		 definitions also function body.  */
+	      if (node->definition)
+		simd_clone_adjust (n);
+	      else
+		{
+		  TREE_TYPE (n->decl)
+		    = build_distinct_type_copy (TREE_TYPE (n->decl));
+		  simd_clone_adjust_return_type (n);
+		  simd_clone_adjust_argument_types (n);
+		  targetm.simd_clone.adjust (n);
+		}
+	      if (dump_file)
+		fprintf (dump_file, "\nGenerated %s clone %s\n",
+			 (TREE_PUBLIC (n->decl) ? "global" : "local"),
+			 IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (n->decl)));
 	    }
-
-	  n->simdclone = clone;
-	  clone->origin = node;
-	  clone->next_clone = NULL;
-	  if (node->simd_clones == NULL)
-	    {
-	      clone->prev_clone = n;
-	      node->simd_clones = n;
-	    }
-	  else
-	    {
-	      clone->prev_clone = node->simd_clones->simdclone->prev_clone;
-	      clone->prev_clone->simdclone->next_clone = n;
-	      node->simd_clones->simdclone->prev_clone = n;
-	    }
-	  symtab->change_decl_assembler_name (n->decl, id);
-	  /* And finally adjust the return type, parameters and for
-	     definitions also function body.  */
-	  if (node->definition)
-	    simd_clone_adjust (n);
-	  else
-	    {
-	      TREE_TYPE (n->decl)
-		= build_distinct_type_copy (TREE_TYPE (n->decl));
-	      simd_clone_adjust_return_type (n);
-	      simd_clone_adjust_argument_types (n);
-	      targetm.simd_clone.adjust (n);
-	    }
-	  if (dump_file)
-	    fprintf (dump_file, "\nGenerated %s clone %s\n",
-		     (TREE_PUBLIC (n->decl) ? "global" : "local"),
-		     IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (n->decl)));
 	}
     }
   while ((attr = lookup_attribute ("omp declare simd", TREE_CHAIN (attr))));

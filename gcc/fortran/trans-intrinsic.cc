@@ -621,13 +621,13 @@ add_simd_flag_for_built_in (tree fndecl)
     return;
 
   const char *name = IDENTIFIER_POINTER (DECL_NAME (fndecl));
-  int *clauses = gfc_vectorized_builtins->get (name);
-  if (clauses)
+  gfc_vect_builtin_info *info = gfc_vectorized_builtins->get (name);
+  if (info)
     {
       for (unsigned i = 0; i < 3; i++)
-	if (*clauses & (1 << i))
+	if (info->clauses & (1u << i))
 	  {
-	    gfc_simd_clause simd_type = (gfc_simd_clause) (1 << i);
+	    gfc_simd_clause simd_type = (gfc_simd_clause) (1u << i);
 	    tree omp_clause = NULL_TREE;
 	    if (simd_type == SIMD_NONE)
 	      ; /* No SIMD clause.  */
@@ -644,6 +644,18 @@ add_simd_flag_for_built_in (tree fndecl)
 	      = tree_cons (get_identifier ("omp declare simd"), omp_clause,
 			   DECL_ATTRIBUTES (fndecl));
 	  }
+
+      if (info->abi_explicit
+	  && lookup_attribute ("riscv_simd_math_abi_v1",
+			       DECL_ATTRIBUTES (fndecl)) == NULL_TREE)
+	{
+	  tree args = build_tree_list (NULL_TREE,
+				       build_int_cst (unsigned_type_node,
+						      info->abi_mask));
+	  tree attrs = tree_cons (get_identifier ("riscv_simd_math_abi_v1"),
+				  args, NULL_TREE);
+	  decl_attributes (&fndecl, attrs, 0);
+	}
     }
 }
 
@@ -672,7 +684,7 @@ gfc_adjust_builtins (void)
   /* Release all strings.  */
   if (gfc_vectorized_builtins != NULL)
     {
-      for (hash_map<nofree_string_hash, int>::iterator it
+      for (hash_map<nofree_string_hash, gfc_vect_builtin_info>::iterator it
 	   = gfc_vectorized_builtins->begin ();
 	   it != gfc_vectorized_builtins->end (); ++it)
 	free (const_cast<char *> ((*it).first));

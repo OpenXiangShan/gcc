@@ -3593,6 +3593,20 @@ simd_clone_current_abi_type (tree original, machine_mode mode)
 
 /* Return public RVV ABI types at the current target's vector size.  */
 tree
+simd_clone_float64m1_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat64m1_t], RVVM1DFmode);
+}
+
+tree
+simd_clone_float32m1_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat32m1_t], RVVM1SFmode);
+}
+
+tree
 simd_clone_float64m2_type (void)
 {
   return simd_clone_current_abi_type
@@ -3607,10 +3621,24 @@ simd_clone_float32m2_type (void)
 }
 
 tree
+simd_clone_bool16_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vbool16_t], RVVMF16BImode);
+}
+
+tree
 simd_clone_bool32_type (void)
 {
   return simd_clone_current_abi_type
     (abi_vector_types[VECTOR_TYPE_vbool32_t], RVVMF32BImode);
+}
+
+tree
+simd_clone_bool64_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vbool64_t], RVVMF64BImode);
 }
 
 /* Same, but with the riscv_vector.h "v..._t" name.  */

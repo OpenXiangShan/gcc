@@ -6568,6 +6568,15 @@ fields in @var{simd_clone} structure pointed by @var{clone_info} argument and al
 not determined by the bitsize (in which case @var{simdlen} is always used).
 The hook should return 0 if SIMD clones shouldn't be emitted,
 or number of @var{vecsize_mangle} variants that should be emitted.
+The fourth argument is a zero-based index into the variants for the
+requested branch convention.  Each invocation receives a fresh copy of
+the original clause and argument information; the hook must not rely on
+changes it made to an earlier variant.  When neither branch clause was
+specified, the caller enumerates unmasked and masked variants independently,
+starting at index zero for each, and their variant counts may differ.
+A zero result for one branch does not suppress the other branch.  A target
+may set @var{inbranch} when its ABI requires a masked clone; duplicate
+resulting names are suppressed by the caller.
 @end deftypefn
 
 @deftypefn {Target Hook} void TARGET_SIMD_CLONE_ADJUST (struct cgraph_node *@var{})
@@ -10896,6 +10905,16 @@ add @code{handle_dll_attribute} in the attribute table for your port
 to perform initial processing of the @samp{dllimport} and
 @samp{dllexport} attributes.  This is done in @file{i386/cygwin.h} and
 @file{i386/i386.cc}, for example.
+@end deftypefn
+
+@deftypefn {Target Hook} tree TARGET_MERGE_LTO_DECL_ATTRIBUTES (tree @var{olddecl}, tree @var{newdecl})
+When two translation units contain declarations of the same symbol, LTO
+normally keeps the attributes of one prevailing declaration.  Define this
+hook when target-specific attributes must instead be combined before clone
+creation.  Return the attributes to install on @var{olddecl}, or
+@code{NULL_TREE} to keep @var{olddecl}'s attributes unchanged.  The hook
+must not modify either declaration.  It is only called for function
+declarations.
 @end deftypefn
 
 @deftypefn {Target Hook} bool TARGET_VALID_DLLIMPORT_ATTRIBUTE_P (const_tree @var{decl})

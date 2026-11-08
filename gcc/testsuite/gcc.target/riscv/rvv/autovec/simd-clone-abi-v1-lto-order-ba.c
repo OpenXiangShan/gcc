@@ -1,0 +1,51 @@
+/* { dg-do link { target rv64 } } */
+/* { dg-require-effective-target lto } */
+/* { dg-options "-O3 -ffast-math -fopenmp-simd -march=rv64gcv -mabi=lp64d -mrvv-vector-bits=zvl -mrvv-max-lmul=m2 -flto -flto-partition=one -save-temps -lm" } */
+/* { dg-additional-sources "simd-clone-abi-v1-lto-order-ba-a.c" } */
+
+/* Fixture declarations only; no math.h include, so the result is independent
+   of the real-header versus fixture-declaration classification.  The checks
+   scan the post-LTO LTRANS assembly, not the pre-LTO object.  */
+
+/* Object order B (0x30, simdlen 4), then A (0x33, simdlen 2).  This is the
+   reverse of -order-ab; the preserved m2 call must be identical and m1 must
+   still be absent.  */
+
+/* Link witness only: this vector_size stub is not a native RVV ABI or
+   runtime proof; noinline keeps the m2 call visible in the LTRANS assembly.  */
+typedef double v4df __attribute__((vector_size (32)));
+__attribute__((used, noinline, noclone)) v4df
+_ZGV2N4v_log (v4df x)
+{
+  return x;
+}
+
+extern double log (double)
+  __attribute__((riscv_simd_math_abi_v1(0x30)));
+#pragma omp declare simd notinbranch
+extern double log (double);
+
+__attribute__((noinline, noclone))
+double
+apply_b (double *restrict y, const double *restrict x, unsigned long n)
+{
+#pragma omp simd simdlen(4)
+  for (unsigned long i = 0; i < n; ++i)
+    y[i] = log (x[i]) + 1.0;
+  return y[0];
+}
+
+extern double apply_a (double *, const double *, unsigned long);
+
+int
+main (void)
+{
+  double x[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+  double y[8] = {0};
+  apply_a (y, x, 8);
+  apply_b (y, x, 8);
+  return 0;
+}
+
+/* { dg-final { scan-lto-assembler "call[ \t]+_ZGV2N4v_log" } } */
+/* { dg-final { scan-lto-assembler-not "_ZGV1N2v_log" } } */

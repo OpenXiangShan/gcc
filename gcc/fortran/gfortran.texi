@@ -3464,6 +3464,32 @@ implementation is only valid if fast-math is enabled:
 The purpose of the directive is to provide an API among the GCC compiler and
 the GNU C Library which would define vector implementations of math routines.
 
+On supported RISC-V targets, a downstream library may insert the optional
+clause @code{riscv_simd_math_abi_v1(@var{mask})} after @var{FLAGS} and before
+@code{IF}.  The mask must be a decimal integer constant from 0 through 255;
+signs, kind suffixes and expressions are not accepted.  Bits 0 through 3
+describe LMUL 1 fixed unmasked, scalable unmasked, fixed masked and scalable
+masked entries, respectively.  Bits 4 through 7 describe the same variants
+for LMUL 2.  The compiler intersects these promises with the function and ABI
+variants it supports; the mask does not enable an arbitrary math function.
+
+For example, a library providing unmasked and masked double-precision LOG
+for both LMULs and both vector-length models may declare:
+
+@smallexample
+!GCC$ builtin (log) attributes simd (notinbranch) riscv_simd_math_abi_v1(255) if('fastmath')
+!GCC$ builtin (log) attributes simd (inbranch) riscv_simd_math_abi_v1(255) if('fastmath')
+@end smallexample
+
+Repeated directives combine their branch clauses and intersect their explicit
+ABI masks.  Explicit zero disables all variants; a later directive without a
+mask does not undo that restriction.  When all directives lack the clause,
+the legacy LMUL 2-only behavior is retained.  Syntax is checked even when the
+@code{IF} condition is false, but a false condition does not add declarations.
+A target that does not register this declaration attribute rejects the clause.
+This versioned downstream interface is intended for library capability files;
+it does not change the RISC-V psABI or implement partial-vector masking.
+
 
 @node IVDEP directive
 @subsection @code{IVDEP} directive

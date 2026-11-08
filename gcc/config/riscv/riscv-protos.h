@@ -600,9 +600,13 @@ enum avl_type
 /* Routines implemented in riscv-vector-builtins.cc.  */
 void init_builtins (void);
 void reinit_builtins (void);
+tree simd_clone_float64m1_type (void);
+tree simd_clone_float32m1_type (void);
 tree simd_clone_float64m2_type (void);
 tree simd_clone_float32m2_type (void);
+tree simd_clone_bool16_type (void);
 tree simd_clone_bool32_type (void);
+tree simd_clone_bool64_type (void);
 const char *mangle_builtin_type (const_tree);
 tree lookup_vector_type_attribute (const_tree);
 bool builtin_type_p (const_tree);

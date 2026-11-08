@@ -8373,6 +8373,64 @@ void foo() __attribute__((riscv_vector_cc));
 [[riscv::vector_cc]] void foo(); // For C++11 and C23
 @end smallexample
 
+@atindex @code{riscv_simd_math_abi_v1}, RISC-V
+@item riscv_simd_math_abi_v1 (@var{mask})
+This downstream declaration attribute describes library ABI availability for
+supported external vector math functions.  It does not change the scalar
+function's calling convention and does not create SIMD declarations by itself;
+use it together with @code{simd} declarations supplied by a matching library.
+The argument is an integer constant in the range 0 through 255.
+
+The low four bits describe LMUL 1 entries, in order: fixed unmasked,
+scalable unmasked, fixed masked, scalable masked.  The high four bits describe
+the same variants for LMUL 2.  For example, 51 permits both unmasked vector
+length models for both LMULs, and 255 additionally permits masked variants.
+Only supported function names, exact homogeneous scalar prototypes, and
+implemented branch variants are accepted for clone generation.  A mask does
+not promise that the compiler implements an arbitrary function or ABI.
+
+Multiple explicit masks on a declaration are intersected.  Explicit zero
+permits no variants.  An absent attribute retains the legacy LMUL 2-only
+behavior; it never authorizes LMUL 1.  The selected target ISA, ABI and
+vector-length model further restrict the available variants.  The compiler
+capability macro @code{__riscv_simd_math_abi_v1} describes compiler support,
+not the presence of a matching installed library.
+
+The same availability masks apply across translation units when link-time
+optimization combines declarations of one function: all explicit masks from
+all declarations are intersected, an explicit zero anywhere permits no
+variants, and a declaration without the attribute contributes the legacy
+LMUL 2-only mask when another declaration for that function carries explicit
+metadata.  A plain declaration therefore cannot inherit LMUL 1 variants from
+an attributed declaration in another translation unit.  If no declaration
+carries explicit metadata, the legacy default applies.  The merge happens
+before SIMD clone creation and does not depend on object-file order.
+Declarations of different functions are never combined.
+
+SIMD branch promises are additive, not restrictive.  One declaration that
+promises only masked variants does not deny unmasked variants promised by
+another declaration, and vice versa.  The intersected mask still decides
+which unmasked and masked variants actually exist; an @code{inbranch} or
+@code{notinbranch} clause is not a negative availability statement.
+
+Within one translation unit, a bare compiler built-in declaration paired with
+a matching explicit library declaration is a normal case; the explicit
+versioned metadata is authoritative, and absence alone does not add the
+legacy mask to that pair.  Across translation units, absence is deliberately
+conservative and contributes the legacy mask whenever the other declaration
+has explicit metadata.
+
+Declarations reached through compiler built-ins (for example a call written
+as @code{__builtin_log}) are not guaranteed to use these clones.  The current
+implementation can leave such a call scalar even when the corresponding
+external function declaration has usable clones.  This is a missed
+optimization; it does not relax mask intersection and never authorizes a
+variant that the declarations do not permit.
+
+This is a versioned downstream compiler/library interface, not an extension
+to the public RISC-V psABI.  Applications should obtain the declarations from
+a matching library header rather than asserting availability themselves.
+
 @atindex @code{target}, RISC-V
 @item target (@var{options})
 This attribute applies to functions.

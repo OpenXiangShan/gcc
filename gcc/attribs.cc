@@ -1855,8 +1855,13 @@ copy_attributes_to_builtin (tree decl)
 {
   tree b = builtin_decl_explicit (DECL_FUNCTION_CODE (decl));
   if (b)
-    duplicate_one_attribute (&DECL_ATTRIBUTES (b),
-			     DECL_ATTRIBUTES (decl), "omp declare simd");
+    {
+      duplicate_one_attribute (&DECL_ATTRIBUTES (b),
+			       DECL_ATTRIBUTES (decl), "omp declare simd");
+      duplicate_one_attribute (&DECL_ATTRIBUTES (b),
+			       DECL_ATTRIBUTES (decl),
+			       "riscv_simd_math_abi_v1");
+    }
 }
 
 #if TARGET_DLLIMPORT_DECL_ATTRIBUTES

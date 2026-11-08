@@ -57,6 +57,16 @@ gfc_directorylist *include_dirs, *intrinsic_modules_dirs;
 static gfc_file *file_head, *current_file;
 
 static bool continue_flag, end_flag, gcc_attribute_flag;
+
+/* True while loading the compiler-provided Fortran preinclude file.  The
+   installed contract headers are physically written in fixed form (their
+   !GCC$ builtin lines are intentionally longer than 72 columns) even when
+   the translation unit itself is fixed form with the default line length.
+   Only direct records from this compiler-provided file are exempted from
+   physical truncation; ordinary source, user includes, and other records
+   keep the user-selected line length and padding semantics.  */
+static bool loading_preinclude;
+
 /* If !$omp/!$acc occurred in current comment line.  */
 static int openmp_flag, openacc_flag;
 static int continue_count, continue_line;
@@ -1817,7 +1827,17 @@ load_line (FILE *input, gfc_char_t **pbuf, int *pbuflen, const int *first_char)
   bool seen_ampersand = false;
   bool found_tab = false;
   bool warned_tabs = false;
+  bool preinclude_builtin = false;
   gfc_char_t *buffer;
+
+  /* The compiler-provided preinclude contract contains !GCC$ builtin
+     records that are physically longer than the fixed-form default.  They
+     are recognized here, before column truncation, but only while loading
+     that direct compiler-provided file.  A leading comment or any other
+     record is deliberately not recognized merely because the text occurs
+     later in the line.  */
+  static const char preinclude_builtin_prefix[] = "!GCC$ builtin (";
+  int preinclude_prefix_pos = loading_preinclude ? 0 : -1;
 
   /* Determine the maximum allowed line length.  */
   if (gfc_current_form == FORM_FREE)
@@ -1972,10 +1992,37 @@ load_line (FILE *input, gfc_char_t **pbuf, int *pbuflen, const int *first_char)
 	  goto next_char;
 	}
 
+      /* Match only the exact vendor builtin record prefix at the very
+	 beginning of a direct preinclude record.  Once matched, the whole
+	 physical record is kept, irrespective of the user's fixed/free line
+	 length; this is needed for the versioned ABI mask and fastmath
+	 clauses.  */
+      if (preinclude_prefix_pos >= 0)
+	{
+	  if (c == (unsigned char) preinclude_builtin_prefix[preinclude_prefix_pos])
+	    {
+	      preinclude_prefix_pos++;
+	      if (preinclude_builtin_prefix[preinclude_prefix_pos] == '\0')
+		{
+		  preinclude_builtin = true;
+		  preinclude_prefix_pos = -1;
+		}
+	    }
+	  else
+	    preinclude_prefix_pos = -1;
+	}
+
+      /* Matching the prefix takes precedence over physical truncation:
+	 a valid -ffixed-line-length/-ffree-line-length smaller than the
+	 prefix must not prevent recognition of the direct preinclude record.
+	 The buffer grows as needed while the prefix is being probed, but
+	 truncation is suspended until the prefix has either matched
+	 completely or failed.  */
       *buffer++ = c;
       i++;
 
-      if (maxlen == 0 || preprocessor_flag)
+      if (maxlen == 0 || preprocessor_flag || preinclude_builtin
+	  || preinclude_prefix_pos >= 0)
 	{
 	  if (i >= buflen)
 	    {
@@ -2026,11 +2073,22 @@ next_char:
       c = getc (input);
     }
 
+  /* If prefix probing deferred truncation beyond the selected length but
+     the record did not turn into an exempt builtin, restore the ordinary
+     physical limit before padding/termination.  This also covers a partial
+     prefix followed by end-of-line.  */
+  if (!preprocessor_flag && !preinclude_builtin && maxlen > 0 && i > maxlen)
+    {
+      buffer = *pbuf + maxlen;
+      i = maxlen;
+    }
+
   /* Pad lines to the selected line length in fixed form.  */
   if (gfc_current_form == FORM_FIXED
       && flag_fixed_line_length != 0
       && flag_pad_source
       && !preprocessor_flag
+      && !preinclude_builtin
       && c != EOF)
     {
       while (i++ < maxlen)
@@ -2539,6 +2597,7 @@ load_file (const char *realfilename, const char *displayedname, bool initial)
   FILE *input;
   int len, line_len;
   bool first_line;
+  bool saved_loading_preinclude;
   struct stat st;
   int stat_result;
   const char *filename;
@@ -2549,6 +2608,15 @@ load_file (const char *realfilename, const char *displayedname, bool initial)
 			 && strcmp (realfilename, displayedname));
 
   filename = displayedname ? displayedname : realfilename;
+
+  /* Only the direct compiler-provided preinclude file is special.  A
+     nested include is a user file and must retain ordinary truncation and
+     padding behavior.  */
+  saved_loading_preinclude = loading_preinclude;
+  if (!initial && current_file == NULL && flag_pre_include != NULL)
+    loading_preinclude = true;
+  else if (!initial && current_file != NULL)
+    loading_preinclude = false;
 
   for (f = current_file; f; f = f->up)
     if (filename_cmp (filename, f->filename) == 0)
@@ -2756,6 +2824,8 @@ load_file (const char *realfilename, const char *displayedname, bool initial)
   free (line);
 
   fclose (input);
+
+  loading_preinclude = saved_loading_preinclude;
 
   if (!initial)
     add_file_change (NULL, current_file->inclusion_line + 1);

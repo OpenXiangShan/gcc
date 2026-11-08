@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "constructor.h"
 #include "target.h"
 #include "flags.h"
+#include "attribs.h"
 
 /* Macros to access allocate memory for gfc_data_variable,
    gfc_data_value and gfc_data.  */
@@ -106,7 +107,7 @@ bool directive_vector = false;
 bool directive_novector = false;
 
 /* Map of middle-end built-ins that should be vectorized.  */
-hash_map<nofree_string_hash, int> *gfc_vectorized_builtins;
+hash_map<nofree_string_hash, gfc_vect_builtin_info> *gfc_vectorized_builtins;
 
 /* If a kind expression of a component of a parameterized derived type is
    parameterized, temporarily store the expression here.  */
@@ -12974,12 +12975,16 @@ gfc_match_gcc_unroll (void)
   return MATCH_ERROR;
 }
 
-/* Match a !GCC$ builtin (b) attributes simd flags if('target') form:
+/* Match a !GCC$ builtin (b) attributes simd flags abi if('target') form:
 
    The parameter b is name of a middle-end built-in.
    FLAGS is optional and must be one of:
      - (inbranch)
      - (notinbranch)
+
+   ABI is optional and, when present, has the form
+     riscv_simd_math_abi_v1 (mask)
+   where mask is a decimal integer constant in the range 0 to 255.
 
    IF('target') is optional and TARGET is a name of a multilib ABI.
 
@@ -13000,30 +13005,110 @@ gfc_match_gcc_builtin (void)
   else if (gfc_match (" ( inbranch ) ") == MATCH_YES)
     clause = SIMD_INBRANCH;
 
+  bool abi_present = false;
+  unsigned abi_mask = 0;
+  if (gfc_match (" riscv_simd_math_abi_v1") == MATCH_YES)
+    {
+      init_attributes ();
+      if (lookup_attribute_spec (get_identifier ("riscv_simd_math_abi_v1"))
+	  == NULL)
+	{
+	  gfc_error ("%qs is not supported for this target at %C",
+		     "riscv_simd_math_abi_v1");
+	  return MATCH_ERROR;
+	}
+
+      if (gfc_match (" ( ") != MATCH_YES)
+	{
+	  gfc_error ("Expected %<(%> after %qs at %C",
+		     "riscv_simd_math_abi_v1");
+	  return MATCH_ERROR;
+	}
+
+      int mask;
+      match m = gfc_match_small_literal_int (&mask, NULL, false);
+      if (m != MATCH_YES)
+	{
+	  if (m == MATCH_NO)
+	    gfc_error ("Expected a decimal integer constant for %qs at %C",
+		       "riscv_simd_math_abi_v1");
+	  return MATCH_ERROR;
+	}
+
+      if (mask > 255)
+	{
+	  gfc_error ("%qs mask %d is outside the range 0 to 255 at %C",
+		     "riscv_simd_math_abi_v1", mask);
+	  return MATCH_ERROR;
+	}
+
+      if (gfc_match (" ) ") != MATCH_YES)
+	{
+	  gfc_error ("Expected %<)%> after %qs mask at %C",
+		     "riscv_simd_math_abi_v1");
+	  return MATCH_ERROR;
+	}
+
+      abi_present = true;
+      abi_mask = (unsigned) mask;
+    }
+
+  bool skip = false;
   if (gfc_match (" if ( '%n' ) ", target) == MATCH_YES)
     {
       if (strcmp (target, "fastmath") == 0)
 	{
 	  if (!fast_math_flags_set_p (&global_options))
-	    return MATCH_YES;
+	    skip = true;
 	}
       else
 	{
 	  const char *abi = targetm.get_multilib_abi_name ();
 	  if (abi == NULL || strcmp (abi, target) != 0)
-	    return MATCH_YES;
+	    skip = true;
 	}
     }
 
+  /* The ABI clause is only valid before IF.  */
+  if (!abi_present
+      && gfc_match (" riscv_simd_math_abi_v1") == MATCH_YES)
+    {
+      gfc_error ("%qs must appear before %<if%> at %C",
+		 "riscv_simd_math_abi_v1");
+      return MATCH_ERROR;
+    }
+
+  /* Keep accepting legacy directives with trailing junk, but ensure the
+     newly introduced clause is completely and correctly formed.  */
+  if (abi_present && gfc_match_eos () != MATCH_YES)
+    {
+      gfc_error ("Unexpected text after %qs clause at %C",
+		 "riscv_simd_math_abi_v1");
+      return MATCH_ERROR;
+    }
+
+  if (skip)
+    return MATCH_YES;
+
   if (gfc_vectorized_builtins == NULL)
-    gfc_vectorized_builtins = new hash_map<nofree_string_hash, int> ();
+    gfc_vectorized_builtins = new hash_map<nofree_string_hash,
+					  gfc_vect_builtin_info> ();
 
   char *r = XNEWVEC (char, strlen (builtin) + 32);
   sprintf (r, "__builtin_%s", builtin);
 
   bool existed;
-  int &value = gfc_vectorized_builtins->get_or_insert (r, &existed);
-  value |= clause;
+  gfc_vect_builtin_info &value
+    = gfc_vectorized_builtins->get_or_insert (r, &existed);
+  value.clauses |= (unsigned) clause;
+  if (abi_present)
+    {
+      if (value.abi_explicit)
+	value.abi_mask &= abi_mask;
+      else
+	value.abi_mask = abi_mask;
+      value.abi_explicit = true;
+    }
   if (existed)
     free (r);
 
