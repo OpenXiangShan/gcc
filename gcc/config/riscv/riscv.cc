@@ -6865,6 +6865,11 @@ riscv_pass_vls_in_vr (struct riscv_arg_info *info, const CUMULATIVE_ARGS *cum,
   if (lmul > 8)
     return NULL_RTX;
 
+  /* Keep the ABI container's register allocation even when MODE occupies
+     fewer physical registers at a wider minimum VLEN.  In particular a
+     fixed m2 libmvec call still places its second argument in v10, not v9.
+     ABI_VLEN controls slots, not the runtime distribution of active lanes:
+     the native callee uses its explicit fixed VL with the real VLEN.  */
   machine_mode vla_mode = riscv_get_vls_container_type (mode, abi_vlen);
   rtx reg = riscv_get_vector_arg (info, cum, vla_mode,
 				  return_p, /* vls_p */ true);
@@ -7941,6 +7946,14 @@ riscv_simd_math_candidates (const riscv_simd_math_entry *entry,
 	  && maybe_ne (requested_simdlen, simdlen))
 	continue;
 
+      /* A fixed symbol keeps its ABI lane count at every minimum VLEN.
+	 A masked prototype currently uses a full native RVV type, which is
+	 only equal to that lane count for the 128-bit baseline.  Do not
+	 manufacture a wider masked signature for a fixed symbol.  */
+      if (!is_scalable && inbranch
+	  && maybe_ne (GET_MODE_NUNITS (vector_mode), fixed_lanes))
+	continue;
+
       if ((is_scalable || inbranch)
 	  && !riscv_simd_math_vector_type (vector_mode))
 	continue;
@@ -7965,7 +7978,7 @@ riscv_simd_clone_compute_vecsize_and_simdlen (cgraph_node *node,
 					     cgraph_simd_clone *clone,
 					     tree, int num, bool)
 {
-  if (!TARGET_VECTOR || riscv_abi != ABI_LP64D || TARGET_MIN_VLEN != 128
+  if (!TARGET_VECTOR || riscv_abi != ABI_LP64D || TARGET_MIN_VLEN < 128
       || (rvv_vector_bits != RVV_VECTOR_BITS_ZVL
 	  && rvv_vector_bits != RVV_VECTOR_BITS_SCALABLE)
       || node->definition || !TREE_PUBLIC (node->decl)
@@ -8095,7 +8108,7 @@ riscv_simd_clone_adjust (cgraph_node *node)
 static int
 riscv_simd_clone_usable (cgraph_node *node, machine_mode mode)
 {
-  if (!TARGET_VECTOR || riscv_abi != ABI_LP64D || TARGET_MIN_VLEN != 128
+  if (!TARGET_VECTOR || riscv_abi != ABI_LP64D || TARGET_MIN_VLEN < 128
       || !riscv_vector_mode_p (mode))
     return -1;
   const riscv_simd_math_entry *entry
