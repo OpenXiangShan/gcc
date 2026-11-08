@@ -798,6 +798,17 @@ typedef struct {
   /* The calling convention that current function used.  */
   enum riscv_cc variant_cc;
 
+  /* True only for the compiler-created libmvec SIMD clone signature.  */
+  bool simd_clone_p;
+
+  /* Mode proven by the exact homogeneous unary/binary RVV prototype, or
+     VOIDmode if no such proof exists.  Keep the storage integral: libgcc
+     includes this header from C before machine modes are declared.  */
+  unsigned int homogeneous_rvv_m2_mode;
+
+  /* The prototype is exactly mask32, f64m2 -> f64m2.  */
+  bool mask_rvv_f64m2_p;
+
   unsigned int abi_vlen;
 
   /* Number of integer registers used so far, up to MAX_ARGS_IN_REGISTERS. */

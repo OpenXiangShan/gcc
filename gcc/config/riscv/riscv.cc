@@ -866,6 +866,8 @@ static const attribute_spec riscv_gnu_attributes[] =
     standard vector calling convention variant. Syntax:
     __attribute__((riscv_vector_cc)). */
   {"riscv_vector_cc", 0, 0, false, true, true, true, NULL, NULL},
+  /* Internal function-type marker; never generated from source syntax.  */
+  {"RISC-V SIMD clone", 0, 0, false, true, true, true, NULL, NULL},
   {"riscv_vls_cc", 0, 1, false, true, true, true,
    riscv_handle_rvv_vls_cc_attribute, NULL},
   /* This attribute is used to declare a new type, to appoint the exactly
@@ -6541,8 +6543,44 @@ riscv_init_cumulative_args (CUMULATIVE_ARGS *cum, const_tree fntype,
   memset (cum, 0, sizeof (*cum));
 
   if (fntype)
-    cum->variant_cc =
-      (riscv_cc) riscv_fntype_abi_1 (fntype, check_only).id ();
+    {
+      cum->variant_cc =
+	(riscv_cc) riscv_fntype_abi_1 (fntype, check_only).id ();
+      cum->simd_clone_p
+	= lookup_attribute ("RISC-V SIMD clone", TYPE_ATTRIBUTES (fntype))
+	  != NULL_TREE;
+      /* The operand may be a generic vector after GIMPLE lowering.  Only
+	 the exact native homogeneous nonvariadic prototype proves its ABI;
+	 neither mode compatibility alone nor a generic vector is sufficient.  */
+      cum->homogeneous_rvv_m2_mode = VOIDmode;
+      if (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE)
+	{
+	  tree rvv_type = TREE_TYPE (fntype);
+	  machine_mode mode = VOIDmode;
+	  if (rvv_type && rvv_type == riscv_vector::simd_clone_float64m2_type ())
+	    mode = RVVM2DFmode;
+	  else if (rvv_type && rvv_type == riscv_vector::simd_clone_float32m2_type ())
+	    mode = RVVM2SFmode;
+	  tree parms = TYPE_ARG_TYPES (fntype);
+	  if (mode != VOIDmode && parms && TREE_VALUE (parms) == rvv_type)
+	    {
+	      parms = TREE_CHAIN (parms);
+	      if (parms && parms != void_list_node
+		  && TREE_VALUE (parms) == rvv_type)
+		parms = TREE_CHAIN (parms);
+	      if (parms == void_list_node)
+		cum->homogeneous_rvv_m2_mode = mode;
+	    }
+	}
+      tree rvv_type = riscv_vector::simd_clone_float64m2_type ();
+      tree mask_type = riscv_vector::simd_clone_bool32_type ();
+      tree parms = TYPE_ARG_TYPES (fntype);
+      cum->mask_rvv_f64m2_p
+	= rvv_type && mask_type && TREE_TYPE (fntype) == rvv_type && parms
+	  && TREE_VALUE (parms) == mask_type && TREE_CHAIN (parms)
+	  && TREE_VALUE (TREE_CHAIN (parms)) == rvv_type
+	  && TREE_CHAIN (TREE_CHAIN (parms)) == void_list_node;
+    }
   else
     cum->variant_cc = RISCV_CC_BASE;
 }
@@ -6764,7 +6802,10 @@ static rtx
 riscv_pass_vls_in_vr (struct riscv_arg_info *info, const CUMULATIVE_ARGS *cum,
 		      machine_mode mode, bool return_p)
 {
-  gcc_assert (riscv_vls_mode_p (mode));
+  /* With -mrvv-vector-bits=zvl a fixed GNU vector can use an RVVM
+     mode rather than one of the dedicated VLS modes.  */
+  gcc_assert (riscv_vector_mode_p (mode)
+	      && GET_MODE_SIZE (mode).is_constant ());
 
   unsigned int abi_vlen = riscv_get_cc_abi_vlen (cum->variant_cc);
   unsigned int mode_size = GET_MODE_SIZE (mode).to_constant ();
@@ -6949,13 +6990,23 @@ riscv_get_arg_info (struct riscv_arg_info *info, const CUMULATIVE_ARGS *cum,
 				      fields[1].offset);
 	}
 
-      /* For scalable vector argument.  */
-      if (riscv_vector_type_p (type) && riscv_vector_mode_p (mode))
+      /* An exact homogeneous native prototype remains authoritative when
+	 GIMPLE has erased the ABI attribute from a compatible actual.  */
+      if (riscv_vector_mode_p (mode)
+	  && (riscv_vector_type_p (type)
+	      || (cum->homogeneous_rvv_m2_mode != VOIDmode
+		  && type && VECTOR_TYPE_P (type)
+		  && mode == cum->homogeneous_rvv_m2_mode)
+	      || (cum->mask_rvv_f64m2_p && type && VECTOR_TYPE_P (type)
+		  && (mode == RVVM2DFmode || mode == RVVMF32BImode))))
 	return riscv_get_vector_arg (info, cum, mode, return_p);
 
       if (riscv_vls_cc_p (cum->variant_cc))
 	{
-	  if (riscv_vls_mode_p (mode))
+	  if (riscv_vls_mode_p (mode)
+	      || (cum->simd_clone_p && type && VECTOR_TYPE_P (type)
+		  && riscv_vla_mode_p (mode)
+		  && GET_MODE_SIZE (mode).is_constant ()))
 	    return riscv_pass_vls_in_vr (info, cum, mode, return_p);
 
 	  rtx ret = riscv_pass_aggregate_in_vr (info, cum, type, return_p);
@@ -7519,6 +7570,189 @@ riscv_fntype_abi_1 (const_tree fntype, bool check_only)
     return riscv_v_abi (abi);
 
   return default_function_abi;
+}
+
+/* External libmvec entries accepted by this private ABI.  Only double log
+   has an additional masked calling convention.  */
+struct riscv_simd_math_entry
+{
+  const char *name;
+  machine_mode scalar_mode;
+  machine_mode vector_mode;
+  unsigned int nargs;
+  unsigned int fixed_lanes;
+};
+
+static const riscv_simd_math_entry riscv_simd_math_table[] = {
+  {"log", DFmode, RVVM2DFmode, 1, 4},
+  {"exp", DFmode, RVVM2DFmode, 1, 4},
+  {"sin", DFmode, RVVM2DFmode, 1, 4},
+  {"cos", DFmode, RVVM2DFmode, 1, 4},
+  {"pow", DFmode, RVVM2DFmode, 2, 4},
+  {"logf", SFmode, RVVM2SFmode, 1, 8}
+};
+
+static const riscv_simd_math_entry *
+riscv_simd_math_lookup (tree decl)
+{
+  if (!DECL_NAME (decl))
+    return nullptr;
+  const char *name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl));
+  for (const auto &entry : riscv_simd_math_table)
+    if (!strcmp (name, entry.name))
+      return &entry;
+  return nullptr;
+}
+
+static tree
+riscv_simd_math_vector_type (machine_mode mode)
+{
+  if (mode == RVVM2DFmode)
+    return riscv_vector::simd_clone_float64m2_type ();
+  if (mode == RVVM2SFmode)
+    return riscv_vector::simd_clone_float32m2_type ();
+  return NULL_TREE;
+}
+
+static int
+riscv_simd_clone_compute_vecsize_and_simdlen (cgraph_node *node,
+					     cgraph_simd_clone *clone,
+					     tree, int num, bool)
+{
+  if (!TARGET_VECTOR || !TARGET_VECTOR_ELEN_FP_64 || !TARGET_DOUBLE_FLOAT
+      || riscv_abi != ABI_LP64D || TARGET_MIN_VLEN != 128
+      || (rvv_vector_bits != RVV_VECTOR_BITS_ZVL
+	  && rvv_vector_bits != RVV_VECTOR_BITS_SCALABLE)
+      || node->definition || !TREE_PUBLIC (node->decl)
+      || !prototype_p (TREE_TYPE (node->decl)) || num != 0)
+    return 0;
+
+  const riscv_simd_math_entry *entry = riscv_simd_math_lookup (node->decl);
+  if (!entry || clone->nargs != entry->nargs
+      || (clone->inbranch && strcmp (entry->name, "log")))
+    return 0;
+  if (clone->inbranch
+      && (!riscv_vector::simd_clone_float64m2_type ()
+	  || !riscv_vector::simd_clone_bool32_type ()))
+    return 0;
+  tree fntype = TREE_TYPE (node->decl);
+  tree args = TYPE_ARG_TYPES (fntype);
+  tree result = TREE_TYPE (fntype);
+  if (!SCALAR_FLOAT_TYPE_P (result) || TYPE_MODE (result) != entry->scalar_mode)
+    return 0;
+  for (unsigned int i = 0; i < entry->nargs; ++i)
+    {
+      if (!args || args == void_list_node
+	  || !SCALAR_FLOAT_TYPE_P (TREE_VALUE (args))
+	  || TYPE_MODE (TREE_VALUE (args)) != entry->scalar_mode
+	  || clone->args[i].arg_type != SIMD_CLONE_ARG_TYPE_VECTOR)
+	return 0;
+      args = TREE_CHAIN (args);
+    }
+  if (args != void_list_node)
+    return 0;
+
+  poly_uint64 lanes = (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE
+		       ? poly_uint64 (GET_MODE_NUNITS (entry->vector_mode))
+		       : poly_uint64 (entry->fixed_lanes));
+  if ((maybe_ne (clone->simdlen, 0U) && maybe_ne (clone->simdlen, lanes))
+      || (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE
+	  && !riscv_simd_math_vector_type (entry->vector_mode)))
+    return 0;
+
+  clone->simdlen = lanes;
+  clone->vecsize_mangle = '2';
+  clone->vecsize_int = 0;
+  clone->vecsize_float = 0;
+  clone->mask_mode = clone->inbranch ? RVVMF32BImode : VOIDmode;
+  clone->mask_first = clone->inbranch;
+  return 1;
+}
+
+/* Generic fixed-length vectors use the standard scalar ABI unless explicitly
+   marked with the VLS vector calling convention.  Its ABI_VLEN of 128 maps
+   the 256-bit argument and return to the v8-v9 register group.  */
+static void
+riscv_simd_clone_adjust (cgraph_node *node)
+{
+  tree type = TREE_TYPE (node->decl);
+  if (node->simdclone->inbranch)
+    {
+      const riscv_simd_math_entry *entry
+	= riscv_simd_math_lookup (node->simdclone->origin->decl);
+      tree vtype = riscv_vector::simd_clone_float64m2_type ();
+      tree mtype = riscv_vector::simd_clone_bool32_type ();
+      gcc_assert (entry && !strcmp (entry->name, "log")
+		  && vtype && mtype && !node->definition
+		  && node->simdclone->nargs == 2);
+      TREE_TYPE (type) = vtype;
+      TYPE_ARG_TYPES (type) = tree_cons (NULL_TREE, mtype,
+					tree_cons (NULL_TREE, vtype,
+						   void_list_node));
+      node->simdclone->args[0].vector_type = vtype;
+      node->simdclone->args[1].vector_type = mtype;
+      return;
+    }
+  if (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE)
+    {
+      /* Generic vector types have the right machine mode but lack the RVV
+	 ABI type identity.  Use the actual sizeless public ABI type for
+	 both the signature and the vectorizer's clone argument metadata.  */
+      const riscv_simd_math_entry *entry
+	= riscv_simd_math_lookup (node->simdclone->origin->decl);
+      gcc_assert (entry && !node->definition
+		  && node->simdclone->nargs == entry->nargs);
+      tree vtype = riscv_simd_math_vector_type (entry->vector_mode);
+      gcc_assert (vtype);
+      TREE_TYPE (type) = vtype;
+      tree parms = void_list_node;
+      for (unsigned int i = 0; i < entry->nargs; ++i)
+	{
+	  parms = tree_cons (NULL_TREE, vtype, parms);
+	  node->simdclone->args[i].vector_type = vtype;
+	}
+      TYPE_ARG_TYPES (type) = parms;
+      return;
+    }
+  /* Mark this private signature so GNU vectors in user-authored VLS CC
+     functions retain their existing calling convention.  Keep riscv_vls_cc
+     at the head of the list for riscv_vls_cc_function_abi.  */
+  tree attrs = tree_cons (get_identifier ("RISC-V SIMD clone"), NULL_TREE,
+			  TYPE_ATTRIBUTES (type));
+  TYPE_ATTRIBUTES (type)
+    = tree_cons (get_identifier ("riscv_vls_cc"), NULL_TREE, attrs);
+}
+
+static int
+riscv_simd_clone_usable (cgraph_node *node, machine_mode mode)
+{
+  if (!TARGET_VECTOR || !TARGET_VECTOR_ELEN_FP_64 || !TARGET_DOUBLE_FLOAT
+      || riscv_abi != ABI_LP64D || TARGET_MIN_VLEN != 128
+      || node->simdclone->vecsize_mangle != '2'
+      || !riscv_vector_mode_p (mode))
+    return -1;
+  const riscv_simd_math_entry *entry
+    = riscv_simd_math_lookup (node->simdclone->origin->decl);
+  if (!entry || GET_MODE_INNER (mode) != entry->scalar_mode
+      || (node->simdclone->inbranch && strcmp (entry->name, "log")))
+    return -1;
+  /* A stale ABI type from target-option initialization must not reach the
+     vectorizer transform, where a mismatched unroll factor can be zero.  */
+  for (unsigned int i = 0; i < entry->nargs; ++i)
+    {
+      tree argtype = node->simdclone->args[i].vector_type;
+      if (!argtype || !VECTOR_TYPE_P (argtype)
+	  || maybe_ne (TYPE_VECTOR_SUBPARTS (argtype),
+		       node->simdclone->simdlen))
+	return -1;
+    }
+  if (rvv_vector_bits == RVV_VECTOR_BITS_ZVL)
+    return maybe_ne (GET_MODE_NUNITS (mode), entry->fixed_lanes) ? -1 : 0;
+  if (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE)
+    return mode == entry->vector_mode
+	   && known_eq (node->simdclone->simdlen, GET_MODE_NUNITS (mode))
+	   ? 0 : -1;
+  return -1;
 }
 
 /* Implement TARGET_FNTYPE_ABI.  */
@@ -16832,6 +17066,14 @@ riscv_prefetch_offset_address_p (rtx x, machine_mode mode)
 #undef  TARGET_DEFAULT_TARGET_FLAGS
 #define TARGET_DEFAULT_TARGET_FLAGS (MASK_BIG_ENDIAN)
 #endif
+
+#undef TARGET_SIMD_CLONE_COMPUTE_VECSIZE_AND_SIMDLEN
+#define TARGET_SIMD_CLONE_COMPUTE_VECSIZE_AND_SIMDLEN \
+  riscv_simd_clone_compute_vecsize_and_simdlen
+#undef TARGET_SIMD_CLONE_ADJUST
+#define TARGET_SIMD_CLONE_ADJUST riscv_simd_clone_adjust
+#undef TARGET_SIMD_CLONE_USABLE
+#define TARGET_SIMD_CLONE_USABLE riscv_simd_clone_usable
 
 #undef TARGET_VECTOR_MODE_SUPPORTED_P
 #define TARGET_VECTOR_MODE_SUPPORTED_P riscv_vector_mode_supported_p

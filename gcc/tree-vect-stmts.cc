@@ -4283,6 +4283,13 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	    || (!n->simdclone->inbranch && (masked_call_offset > 0))
 	    || (nargs != simd_nargs))
 	  continue;
+	/* Mask-first ABI support initially requires one unsplit vector call.  */
+	if (n->simdclone->inbranch && n->simdclone->mask_first
+	    && (num_calls != 1 || SLP_TREE_LANES (slp_node) != 1
+		|| !arginfo[0].vectype
+		|| maybe_ne (TYPE_VECTOR_SUBPARTS (arginfo[0].vectype),
+			     n->simdclone->simdlen)))
+	  continue;
 	if (num_calls != 1)
 	  this_badness += floor_log2 (num_calls) * 4096;
 	if (n->simdclone->inbranch)
@@ -4303,7 +4310,15 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	    switch (n->simdclone->args[i].arg_type)
 	      {
 	      case SIMD_CLONE_ARG_TYPE_VECTOR:
-		if (VECTOR_BOOLEAN_TYPE_P (n->simdclone->args[i].vector_type))
+		if (n->simdclone->mask_first
+		    && (!n->simdclone->args[i].vector_type
+			|| !VECTOR_TYPE_P (n->simdclone->args[i].vector_type)
+			|| maybe_ne (TYPE_VECTOR_SUBPARTS
+				       (n->simdclone->args[i].vector_type),
+				     n->simdclone->simdlen)))
+		  /* Do not attempt to split or construct a zero-operand call.  */
+		  i = -1;
+		else if (VECTOR_BOOLEAN_TYPE_P (n->simdclone->args[i].vector_type))
 		  /* Vector mask arguments are not supported.  */
 		  i = -1;
 		else if (!useless_type_conversion_p
@@ -4340,7 +4355,18 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 		i = -1;
 		break;
 	      case SIMD_CLONE_ARG_TYPE_MASK:
-		if (!SCALAR_INT_MODE_P (n->simdclone->mask_mode)
+		if (n->simdclone->mask_first
+		    && GET_MODE_CLASS (n->simdclone->mask_mode) == MODE_VECTOR_BOOL)
+		  {
+		    /* Only an unsplit, mode-identical predicate is supported.  */
+		    if (!arginfo[i].vectype
+			|| !VECTOR_BOOLEAN_TYPE_P (arginfo[i].vectype)
+			|| TYPE_MODE (arginfo[i].vectype) != n->simdclone->mask_mode
+			|| maybe_ne (TYPE_VECTOR_SUBPARTS (arginfo[i].vectype),
+				     n->simdclone->simdlen))
+		      i = -1;
+		  }
+		else if (!SCALAR_INT_MODE_P (n->simdclone->mask_mode)
 		    && n->simdclone->mask_mode != VOIDmode)
 		  i = -1;
 		/* While we can create a traditional data vector from
@@ -4442,7 +4468,11 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	    return false;
 	  }
 
-      if (!bestn_inbranch && loop_vinfo)
+      /* The mask-first ABI currently supports conditional calls on full
+	 vectors only.  In particular, a length-controlled partial loop
+	 must not call a VLMAX callee with inactive lanes enabled.  */
+      if (loop_vinfo
+	  && (!bestn_inbranch || bestn_inbranch->simdclone->mask_first))
 	{
 	  if (dump_enabled_p ()
 	      && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo))
@@ -4818,6 +4848,15 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 			}
 		    }
 		}
+	      else if (bestn->simdclone->mask_first
+		       && GET_MODE_CLASS (bestn->simdclone->mask_mode)
+			  == MODE_VECTOR_BOOL)
+		{
+		  /* Matching checked the unsplit predicate's mode and lanes.  */
+		  gcc_assert (bestn->simdclone->args[i].linear_step == 1);
+		  vec_oprnd0 = vec_oprnds[i][vec_oprnds_i[i]++];
+		  vargs.safe_push (vec_oprnd0);
+		}
 	      else
 		gcc_unreachable ();
 	      break;
@@ -4957,7 +4996,9 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 		mask = build3 (VEC_COND_EXPR, mask_argtype, mask,
 			       build_one_cst (mask_argtype),
 			       build_zero_cst (mask_argtype));
-	      else
+	      else if (!(bestn->simdclone->mask_first
+			 && GET_MODE_CLASS (bestn->simdclone->mask_mode)
+			    == MODE_VECTOR_BOOL))
 		gcc_unreachable ();
 
 	      new_stmt = gimple_build_assign (make_ssa_name (mask_argtype),
@@ -4969,6 +5010,12 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	    }
 	}
 
+      if (bestn->simdclone->inbranch && bestn->simdclone->mask_first)
+	{
+	  gcc_assert (vargs.length () == 2);
+	  tree mask = vargs.pop ();
+	  vargs.safe_insert (0, mask);
+	}
       gcall *new_call = gimple_build_call_vec (fndecl, vargs);
       if (vec_dest)
 	{

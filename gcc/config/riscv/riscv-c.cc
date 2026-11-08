@@ -120,6 +120,33 @@ riscv_cpu_cpp_builtins (cpp_reader *pfile)
   else
     builtin_define_with_int_value ("__riscv_misaligned_fast", 1);
 
+  /* Per-function downstream libmvec capabilities describe compiler support,
+     not the presence of the matching installed library.  */
+  if (TARGET_VECTOR && TARGET_VECTOR_ELEN_FP_64 && TARGET_DOUBLE_FLOAT
+      && riscv_abi == ABI_LP64D && TARGET_MIN_VLEN == 128)
+    {
+      if (rvv_vector_bits == RVV_VECTOR_BITS_ZVL)
+	{
+	  builtin_define_with_int_value ("__riscv_simd_math_log_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_log_m2_mask", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_exp_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_sin_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_cos_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_pow_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_logf_m2", 1);
+	}
+      else if (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE)
+	{
+	  builtin_define_with_int_value ("__riscv_simd_math_log_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_log_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_exp_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_sin_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_cos_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_pow_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_logf_m2_vla", 1);
+	}
+    }
+
   if (TARGET_MIN_VLEN != 0)
     builtin_define_with_int_value ("__riscv_v_min_vlen", TARGET_MIN_VLEN);
 

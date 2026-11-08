@@ -3559,6 +3559,60 @@ static function_group_info function_groups[] = {
    yields a null tree.  */
 static GTY (()) tree abi_vector_types[NUM_VECTOR_TYPES + 1];
 
+/* RVV ABI types can be registered while rvv_switcher temporarily enables
+   Zvl4096b (notably in LTO).  Their mode is stable but their polynomial size
+   then reflects that temporary setting.  Do not mutate those canonical
+   public types: make and cache exact ABI-attributed variants for the current
+   mode size when SIMD clone declarations need a differently sized type.  */
+static GTY (()) vec<tree, va_gc> *simd_clone_abi_types;
+
+static tree
+simd_clone_current_abi_type (tree original, machine_mode mode)
+{
+  if (!original || !TARGET_VECTOR)
+    return original;
+  poly_uint64 lanes = GET_MODE_NUNITS (mode);
+  if (known_eq (TYPE_VECTOR_SUBPARTS (original), lanes))
+    return original;
+  unsigned i;
+  tree type;
+  FOR_EACH_VEC_SAFE_ELT (simd_clone_abi_types, i, type)
+    if (TYPE_MODE_RAW (type) == mode
+	&& TREE_TYPE (type) == TREE_TYPE (original)
+	&& known_eq (TYPE_VECTOR_SUBPARTS (type), lanes))
+      return type;
+  type = build_distinct_type_copy
+    (build_vector_type_for_mode (TREE_TYPE (original), mode));
+  SET_TYPE_STRUCTURAL_EQUALITY (type);
+  TYPE_ARTIFICIAL (type) = 1;
+  TYPE_INDIVISIBLE_P (type) = 1;
+  TYPE_ATTRIBUTES (type) = TYPE_ATTRIBUTES (original);
+  vec_safe_push (simd_clone_abi_types, type);
+  return type;
+}
+
+/* Return public RVV ABI types at the current target's vector size.  */
+tree
+simd_clone_float64m2_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat64m2_t], RVVM2DFmode);
+}
+
+tree
+simd_clone_float32m2_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat32m2_t], RVVM2SFmode);
+}
+
+tree
+simd_clone_bool32_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vbool32_t], RVVMF32BImode);
+}
+
 /* Same, but with the riscv_vector.h "v..._t" name.  */
 extern GTY (()) rvv_builtin_types_t builtin_types[NUM_VECTOR_TYPES + 1];
 rvv_builtin_types_t builtin_types[NUM_VECTOR_TYPES + 1];

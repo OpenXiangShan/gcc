@@ -2045,13 +2045,15 @@ expand_simd_clones (struct cgraph_node *node)
 		 clone's info.  */
 	      clone->nargs -= clone_info->inbranch;
 	      clone->simdlen = orig_simdlen;
-	      /* And call the target hook again to get the right ISA.  */
-	      targetm.simd_clone.compute_vecsize_and_simdlen (node, clone,
-							      base_type,
-							      i / 2,
-							      explicit_p);
+	      /* Let the target examine the actual branch variant and reject
+		 it before it is mangled or its signature is adjusted.  */
 	      if ((i & 1) != 0)
 		clone->inbranch = 1;
+	      if (!targetm.simd_clone.compute_vecsize_and_simdlen (node, clone,
+								  base_type,
+								  i / 2,
+								  explicit_p))
+		continue;
 	    }
 
 	  /* simd_clone_mangle might fail if such a clone has been created

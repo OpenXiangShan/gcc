@@ -854,6 +854,10 @@ struct GTY(()) cgraph_simd_clone {
      otherwise false.  */
   unsigned int inbranch : 1;
 
+  /* For in-branch clones, place the logical trailing mask first in the
+     physical function signature and call, without changing args[] order.  */
+  unsigned int mask_first : 1;
+
   /* Doubly linked list of SIMD clones.  */
   cgraph_node *prev_clone, *next_clone;
 
