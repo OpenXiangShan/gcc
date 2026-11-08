@@ -627,7 +627,7 @@ add_simd_flag_for_built_in (tree fndecl)
       for (unsigned i = 0; i < 3; i++)
 	if (*clauses & (1 << i))
 	  {
-	    gfc_simd_clause simd_type = (gfc_simd_clause)*clauses;
+	    gfc_simd_clause simd_type = (gfc_simd_clause) (1 << i);
 	    tree omp_clause = NULL_TREE;
 	    if (simd_type == SIMD_NONE)
 	      ; /* No SIMD clause.  */
