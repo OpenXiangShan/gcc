@@ -1,9 +1,9 @@
 /* { dg-do compile { target { rv64 } } } */
 /* { dg-options "-O3 -ffast-math -fopenmp-simd -march=rv64gcv -mabi=lp64d -mrvv-vector-bits=zvl -mrvv-max-lmul=m2 -fdump-ipa-simdclone" } */
 
-/* An explicit mask may request variants a function does not provide.  The
-   target must intersect it with the entry's supported mask instead of
-   creating an unsupported masked ABI.  Only log has masked kernels.  */
+/* The target intersects an explicit mask with the entry's supported mask.
+   All libmvec kernels accept the full mask, but the notinbranch clauses in
+   this test only ask for the unmasked fixed variants.  */
 #pragma omp declare simd notinbranch
 extern double exp (double) __attribute__((riscv_simd_math_abi_v1(0xff)));
 #pragma omp declare simd notinbranch

@@ -7709,26 +7709,28 @@ static const riscv_simd_math_entry riscv_simd_math_table[] = {
   {"log", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N
      | RISCV_SIMD_MATH_M2_FIXED_M | RISCV_SIMD_MATH_M2_SCALABLE_M},
-  {"exp", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4,
-   RISCV_SIMD_MATH_M1_FIXED_N | RISCV_SIMD_MATH_M1_SCALABLE_N
-     | RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N,
+  {"exp", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"sin", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4,
-   RISCV_SIMD_MATH_M1_FIXED_N | RISCV_SIMD_MATH_M1_SCALABLE_N
-     | RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N,
+  {"sin", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"cos", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4,
-   RISCV_SIMD_MATH_M1_FIXED_N | RISCV_SIMD_MATH_M1_SCALABLE_N
-     | RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N,
+  {"cos", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"pow", DFmode, RVVM1DFmode, RVVM2DFmode, 2, 2, 4,
-   RISCV_SIMD_MATH_M1_FIXED_N | RISCV_SIMD_MATH_M1_SCALABLE_N
-     | RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N,
+  {"pow", DFmode, RVVM1DFmode, RVVM2DFmode, 2, 2, 4, 0xff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"logf", SFmode, RVVM1SFmode, RVVM2SFmode, 1, 4, 8,
-   RISCV_SIMD_MATH_M1_FIXED_N | RISCV_SIMD_MATH_M1_SCALABLE_N
-     | RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N,
-   RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N}
+  {"logf", SFmode, RVVM1SFmode, RVVM2SFmode, 1, 4, 8, 0xff,
+   RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
+  /* The 2.45 libmvec exports masked expf entries (M8v/Mxv and M4v/Mxv),
+     but the pre-ABI-v1 legacy path had no expf symbol at all.  */
+  {"expf", SFmode, RVVM1SFmode, RVVM2SFmode, 1, 4, 8, 0xff,
+   0},
+  /* New function: available only through the ABI v1 handshake.  */
+  {"log10", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff, 0},
+  /* New function: available only through the ABI v1 handshake.  */
+  {"atan", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff, 0},
+  /* New function: available only through the ABI v1 handshake.  */
+  {"acos", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff, 0},
+  /* New function: available only through the ABI v1 handshake.  */
+  {"atan2", DFmode, RVVM1DFmode, RVVM2DFmode, 2, 2, 4, 0xff, 0},
 };
 
 static const riscv_simd_math_entry *

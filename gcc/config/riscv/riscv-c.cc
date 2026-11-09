@@ -139,20 +139,54 @@ riscv_cpu_cpp_builtins (cpp_reader *pfile)
 	  if (TARGET_MIN_VLEN == 128)
 	    builtin_define_with_int_value ("__riscv_simd_math_log_m2_mask", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_exp_m2", 1);
+	  if (TARGET_MIN_VLEN == 128)
+	    builtin_define_with_int_value ("__riscv_simd_math_exp_m2_mask", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_sin_m2", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_cos_m2", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_pow_m2", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_logf_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_expf_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_atan2_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_acos_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_atan_m2", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_log10_m2", 1);
+	  if (TARGET_MIN_VLEN == 128)
+	    {
+	      builtin_define_with_int_value ("__riscv_simd_math_sin_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_cos_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_pow_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_logf_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_atan2_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_expf_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_acos_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_atan_m2_mask", 1);
+	      builtin_define_with_int_value ("__riscv_simd_math_log10_m2_mask", 1);
+	    }
 	}
       else if (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE)
 	{
 	  builtin_define_with_int_value ("__riscv_simd_math_log_m2_vla", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_log_m2_mask_vla", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_exp_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_exp_m2_mask_vla", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_sin_m2_vla", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_cos_m2_vla", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_pow_m2_vla", 1);
 	  builtin_define_with_int_value ("__riscv_simd_math_logf_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_expf_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_atan2_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_acos_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_atan_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_log10_m2_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_sin_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_cos_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_pow_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_logf_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_atan2_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_expf_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_acos_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_atan_m2_mask_vla", 1);
+	  builtin_define_with_int_value ("__riscv_simd_math_log10_m2_mask_vla", 1);
 	}
     }
 

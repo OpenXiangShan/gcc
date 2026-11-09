@@ -5159,7 +5159,10 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 
       if (bestn->simdclone->inbranch && bestn->simdclone->mask_first)
 	{
-	  gcc_assert (vargs.length () == 2);
+	  /* The mask is pushed after the data arguments, so the vector of
+	     call arguments holds one entry per clone parameter regardless
+	     of the kernel arity.  */
+	  gcc_assert (vargs.length () == bestn->simdclone->nargs);
 	  tree mask = vargs.pop ();
 	  vargs.safe_insert (0, mask);
 	}
