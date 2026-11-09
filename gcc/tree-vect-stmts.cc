@@ -5017,6 +5017,14 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	  vargs.safe_insert (0, mask);
 	}
       gcall *new_call = gimple_build_call_vec (fndecl, vargs);
+      /* The scalar stmt we are replacing may be IFN_MASK_CALL, which is
+	 ECF_NOVOPS even if the clone it expands to clobbers memory.  The
+	 clone call is inserted after the last vector argument definition,
+	 so the virtual definition can not be chained easily and virtual
+	 SSA form has to be updated by the delayed renaming instead.  */
+      if (!(gimple_call_flags (new_call)
+	    & (ECF_CONST | ECF_PURE | ECF_NOVOPS)))
+	vinfo->any_known_not_updated_vssa = true;
       if (vec_dest)
 	{
 	  gcc_assert (ratype
