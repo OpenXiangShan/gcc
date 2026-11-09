@@ -4065,6 +4065,81 @@ vect_simd_lane_linear (tree op, class loop *loop,
     }
 }
 
+/* Return true if the first NARGS vector arguments of A and B have the same
+   layout and compatible vector types.  */
+
+static bool
+simd_clone_same_vector_args_p (cgraph_simd_clone *a, cgraph_simd_clone *b,
+			       unsigned int nargs)
+{
+  for (unsigned int i = 0; i < nargs; i++)
+    {
+      if (a->args[i].arg_type != b->args[i].arg_type)
+	return false;
+      if (a->args[i].vector_type && b->args[i].vector_type)
+	{
+	  if (!types_compatible_p (a->args[i].vector_type,
+				   b->args[i].vector_type))
+	    return false;
+	}
+      else if (a->args[i].vector_type != b->args[i].vector_type)
+	return false;
+    }
+  return true;
+}
+
+/* Return a non-length simd clone of NODE that can replace the
+   length-controlled clone LENGTH if the loop does not use partial vectors
+   after all.  MASKED_CALL is true if the call has an explicit mask
+   argument.
+
+   The replacement must have the same simdlen and the same vector argument
+   layout so that nunits/ncopies, arginfo and the SLP vector types and cost
+   chosen during analysis stay valid.  */
+
+static cgraph_node *
+simd_clone_non_length_fallback (cgraph_node *node, cgraph_node *length,
+				bool masked_call)
+{
+  cgraph_simd_clone *linfo = length->simdclone;
+  cgraph_node *masked = NULL;
+
+  for (cgraph_node *n = node->simd_clones; n != NULL;
+       n = n->simdclone->next_clone)
+    {
+      cgraph_simd_clone *info = n->simdclone;
+
+      if (info->length_arg
+	  || maybe_ne (info->simdlen, linfo->simdlen))
+	continue;
+
+      if (masked_call)
+	{
+	  /* Only inbranch clones can handle the explicit mask.  */
+	  if (!info->inbranch
+	      || info->nargs != linfo->nargs
+	      || info->mask_mode != linfo->mask_mode
+	      || info->mask_first != linfo->mask_first
+	      || !simd_clone_same_vector_args_p (linfo, info, info->nargs))
+	    continue;
+	  return n;
+	}
+
+      /* Without an explicit mask prefer the unmasked clone, which does
+	 not need an all-true mask to be constructed.  */
+      if (!info->inbranch
+	  && info->nargs == linfo->nargs - 1
+	  && simd_clone_same_vector_args_p (linfo, info, info->nargs))
+	return n;
+      if (info->inbranch && masked == NULL
+	  && info->nargs == linfo->nargs
+	  && info->mask_mode == linfo->mask_mode
+	  && simd_clone_same_vector_args_p (linfo, info, info->nargs))
+	masked = n;
+    }
+  return masked;
+}
+
 /* Function vectorizable_simd_clone_call.
 
    Check if STMT_INFO performs a function call that can be vectorized
@@ -4260,6 +4335,27 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
   unsigned int badness_inbranch = 0;
   struct cgraph_node *bestn = NULL;
   struct cgraph_node *bestn_inbranch = NULL;
+  /* Length-controlled clones are an opt-in target capability advertised
+     through the clone metadata.  Targets that do not create any keep their
+     existing SIMD-clone selection and partial-vector behavior.  */
+  bool have_length_clone = false;
+  for (struct cgraph_node *n = node->simd_clones; n != NULL;
+       n = n->simdclone->next_clone)
+    if (n->simdclone->length_arg
+	&& simd_clone_non_length_fallback (node, n,
+					   masked_call_offset != 0))
+      {
+	have_length_clone = true;
+	break;
+      }
+  /* Length-controlled clones are only usable with partial vectors.  During
+     analysis we only know that partial vectors are still permitted; the
+     final decision whether they are used is made after all stmts have been
+     analyzed.  If they end up not being used, transform falls back to the
+     equivalent non-length clone recorded here.  */
+  bool want_length_clone
+    = (have_length_clone && loop_vinfo
+       && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo));
   if (!cost_vec)
     bestn = ((loop_vinfo && LOOP_VINFO_FULLY_MASKED_P (loop_vinfo))
 	     ? data.clone_inbranch : data.clone);
@@ -4268,6 +4364,14 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	 n = n->simdclone->next_clone)
       {
 	unsigned int this_badness = 0;
+	/* A length-controlled clone is only valid for an unconditional
+	   call in a loop that is still allowed to use partial vectors.  */
+	if (n->simdclone->length_arg != want_length_clone)
+	  continue;
+	if (n->simdclone->length_arg
+	    && !simd_clone_non_length_fallback (node, n,
+						masked_call_offset != 0))
+	  continue;
 	unsigned int num_calls;
 	/* The number of arguments in the call and the number of parameters in
 	   the simdclone should match.  However, when the simdclone is
@@ -4411,6 +4515,10 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	  }
 	if (i == (size_t) -1)
 	  continue;
+	if (n->simdclone->length_arg
+	    && vector_unroll_factor (vf * group_size, n->simdclone->simdlen)
+		 != vect_get_num_vectors (vf * group_size, vectype))
+	  continue;
 	if (masked_call_offset == 0
 	    && n->simdclone->inbranch
 	    && n->simdclone->nargs > nargs)
@@ -4472,7 +4580,9 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	 vectors only.  In particular, a length-controlled partial loop
 	 must not call a VLMAX callee with inactive lanes enabled.  */
       if (loop_vinfo
-	  && (!bestn_inbranch || bestn_inbranch->simdclone->mask_first))
+	  && (!bestn_inbranch
+	      || (bestn_inbranch->simdclone->mask_first
+		  && !bestn_inbranch->simdclone->length_arg)))
 	{
 	  if (dump_enabled_p ()
 	      && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo))
@@ -4500,11 +4610,27 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
       data.clone_inbranch = bestn_inbranch;
 
       simd_clone_info.safe_push (NULL_TREE);
+      bool length_clone = (bestn_inbranch
+			   && bestn_inbranch->simdclone->length_arg);
+      if (length_clone && loop_vinfo
+	  && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo))
+	vect_record_loop_len (loop_vinfo, &LOOP_VINFO_LENS (loop_vinfo),
+			      ncopies_in, vectype, 1);
       for (i = 0;
 	   i < (bestn_inbranch ? bestn_inbranch : bestn)->simdclone->nargs; i++)
 	{
+	  if (length_clone && masked_call_offset == 0
+	      && (bestn_inbranch->simdclone->args[i].arg_type
+		  == SIMD_CLONE_ARG_TYPE_MASK))
+	    continue;
+	  /* For a length-controlled clone an explicit mask is a data
+	     argument: the tail is represented by the loop length, so it
+	     must not also be represented by a loop mask.  The vectorizer
+	     does not support mixing mask- and length-controlled partial
+	     vectors in one loop.  */
 	  if (loop_vinfo
 	      && LOOP_VINFO_CAN_USE_PARTIAL_VECTORS_P (loop_vinfo)
+	      && !length_clone
 	      && (bestn_inbranch->simdclone->args[i].arg_type
 		  == SIMD_CLONE_ARG_TYPE_MASK))
 	    {
@@ -4579,6 +4705,27 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
     }
 
   /* Transform.  */
+
+  /* Analysis selected a length clone assuming that partial vectors would
+     be used.  If the loop ended up operating on full vectors, switch to
+     the non-length clone with the same simdlen that analysis verified was
+     available, rather than failing late in the SLP scheduler.  */
+  if (bestn->simdclone->length_arg
+      && (!loop_vinfo
+	  || !LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo)))
+    {
+      cgraph_node *fallback
+	= simd_clone_non_length_fallback (node, bestn,
+					  masked_call_offset != 0);
+      gcc_assert (fallback != NULL);
+      bestn = fallback;
+      /* fndecl was bound to the analysis-time clone; rebind it so the
+	 call uses the fallback symbol with the unchanged argument map.  */
+      fndecl = bestn->decl;
+    }
+  gcc_assert (!bestn->simdclone->length_arg
+	      || (loop_vinfo
+		  && LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo)));
 
   if (dump_enabled_p ())
     dump_printf_loc (MSG_NOTE, vect_location, "transform call.\n");
@@ -5015,6 +5162,19 @@ vectorizable_simd_clone_call (vec_info *vinfo, stmt_vec_info stmt_info,
 	  gcc_assert (vargs.length () == 2);
 	  tree mask = vargs.pop ();
 	  vargs.safe_insert (0, mask);
+	}
+      if (bestn->simdclone->length_arg)
+	{
+	  gcc_assert (loop_vinfo
+		      && LOOP_VINFO_USING_PARTIAL_VECTORS_P (loop_vinfo));
+	  tree len = vect_get_loop_len (loop_vinfo, gsi,
+					&LOOP_VINFO_LENS (loop_vinfo),
+					ncopies_in, vectype, j, 1, true);
+	  len = force_gimple_operand_gsi (gsi,
+					 fold_convert (size_type_node, len),
+					 true, NULL_TREE, true,
+					 GSI_SAME_STMT);
+	  vargs.safe_insert (0, len);
 	}
       gcall *new_call = gimple_build_call_vec (fndecl, vargs);
       /* The scalar stmt we are replacing may be IFN_MASK_CALL, which is

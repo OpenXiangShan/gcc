@@ -858,6 +858,12 @@ struct GTY(()) cgraph_simd_clone {
      physical function signature and call, without changing args[] order.  */
   unsigned int mask_first : 1;
 
+  /* Nonzero if this clone has a leading explicit size_t length argument
+     immediately before the mask.  The clone's physical signature is
+     (size_t, mask, data...) while args[] still describes the mask and data
+     arguments.  Used by length-controlled partial-vector calls.  */
+  unsigned int length_arg : 1;
+
   /* Doubly linked list of SIMD clones.  */
   cgraph_node *prev_clone, *next_clone;
 

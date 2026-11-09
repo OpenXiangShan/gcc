@@ -628,6 +628,8 @@ simd_clone_mangle (struct cgraph_node *node,
   if (*str == '*')
     ++str;
   pp_string (&pp, str);
+  if (clone_info->length_arg)
+    pp_string (&pp, "_len");
   str = pp_formatted_text (&pp);
 
   /* If there already is a SIMD clone with the same mangled name, don't

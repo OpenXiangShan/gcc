@@ -129,6 +129,10 @@ riscv_cpu_cpp_builtins (cpp_reader *pfile)
 	 advertises compiler syntax support, not the presence of an m1
 	 library; the installed header still decides which entries exist.  */
       builtin_define_with_int_value ("__riscv_simd_math_abi_v1", 1);
+      /* Compiler-side opt-in marker for the private length-first masked
+	 ABI.  The private header must also request it; an old header does
+	 not, so no _len clone is synthesized for old runtimes.  */
+      builtin_define_with_int_value ("__riscv_simd_math_abi_len", 1);
       if (rvv_vector_bits == RVV_VECTOR_BITS_ZVL)
 	{
 	  builtin_define_with_int_value ("__riscv_simd_math_log_m2", 1);

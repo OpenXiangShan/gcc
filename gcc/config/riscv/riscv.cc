@@ -877,6 +877,11 @@ static const attribute_spec riscv_gnu_attributes[] =
      the target's SIMD clone hooks, not while parsing the attribute.  */
   {"riscv_simd_math_abi_v1", 1, 1, true, false, false, false,
    riscv_handle_simd_math_abi_v1_attribute, NULL},
+  /* Opt-in marker for the private length-first masked ABI.  The marker is
+     deliberately separate from the public per-function mask: an old
+     header has no marker, so a new compiler must not synthesize _len
+     clones and calls for it.  */
+  {"riscv_simd_math_abi_len", 0, 0, true, false, false, false, NULL, NULL},
   /* This attribute is used to declare a new type, to appoint the exactly
      bits size of the type.  For example:
 
@@ -6630,6 +6635,42 @@ riscv_init_cumulative_args (CUMULATIVE_ARGS *cum, const_tree fntype,
 	  if (mask_found)
 	    break;
 	}
+
+      /* Length-controlled masked ABI: (size_t, mask, data...).  */
+      if (!mask_found)
+	for (auto &data : data_types)
+	  {
+	    for (auto &mask : mask_types)
+	      {
+		if (!data.type || !mask.type || ret != data.type)
+		  continue;
+		tree parms = TYPE_ARG_TYPES (fntype);
+		if (!parms || parms == void_list_node
+		    || TREE_VALUE (parms) != size_type_node)
+		  continue;
+		parms = TREE_CHAIN (parms);
+		if (!parms || parms == void_list_node
+		    || TREE_VALUE (parms) != mask.type)
+		  continue;
+		parms = TREE_CHAIN (parms);
+		unsigned int nargs = 0;
+		while (parms && parms != void_list_node
+		       && TREE_VALUE (parms) == data.type)
+		  {
+		    nargs++;
+		    parms = TREE_CHAIN (parms);
+		  }
+		if (parms == void_list_node && (nargs == 1 || nargs == 2))
+		  {
+		    cum->mask_rvv_abi_data_mode = data.mode;
+		    cum->mask_rvv_abi_mask_mode = mask.mode;
+		    mask_found = true;
+		    break;
+		  }
+	      }
+	    if (mask_found)
+	      break;
+	  }
     }
   else
     cum->variant_cc = RISCV_CC_BASE;
@@ -7702,23 +7743,25 @@ riscv_simd_math_lookup (tree decl)
   return nullptr;
 }
 
-/* Copy ATTRS while dropping every riscv_simd_math_abi_v1 entry.  The
-   caller re-adds one canonical intersection of the merged declarations'
-   masks, keeping metadata bounded even when LTO declarations are shared.  */
+/* Copy ATTRS while dropping the libmvec metadata entries.  The caller
+   re-adds one canonical intersection of the merged declarations' masks,
+   and re-adds the length opt-in only when both declarations carry it.
+   Keeping this metadata bounded matters when LTO shares a declaration.  */
 static tree
 riscv_copy_attrs_without_simd_math (tree attrs)
 {
   tree result = NULL_TREE;
   tree *link = &result;
   for (tree attr = attrs; attr; attr = TREE_CHAIN (attr))
-    if (!is_attribute_p ("riscv_simd_math_abi_v1",
-			 get_attribute_name (attr)))
-      {
-	tree copy = tree_cons (TREE_PURPOSE (attr), TREE_VALUE (attr),
-			       NULL_TREE);
-	*link = copy;
-	link = &TREE_CHAIN (copy);
-      }
+    {
+      const_tree name = get_attribute_name (attr);
+      if (is_attribute_p ("riscv_simd_math_abi_v1", name)
+	  || is_attribute_p ("riscv_simd_math_abi_len", name))
+	continue;
+      tree copy = tree_cons (TREE_PURPOSE (attr), TREE_VALUE (attr), NULL_TREE);
+      *link = copy;
+      link = &TREE_CHAIN (copy);
+    }
   return result;
 }
 
@@ -7779,7 +7822,13 @@ riscv_merge_lto_decl_attributes (tree olddecl, tree newdecl)
      path use the legacy default.  Adding a legacy attribute here would be
      redundant, and returning early would lose the unioned SIMD promise.  */
   if (!old_has_mask && !new_has_mask)
-    return result;
+    {
+      if (lookup_attribute ("riscv_simd_math_abi_len", old_attrs)
+	  && lookup_attribute ("riscv_simd_math_abi_len", new_attrs))
+	result = tree_cons (get_identifier ("riscv_simd_math_abi_len"),
+			    NULL_TREE, result);
+      return result;
+    }
 
   /* A declaration without metadata is a legacy declaration, not an
      unconstrained one.  This is deliberately conservative across TUs: it
@@ -7797,7 +7846,20 @@ riscv_merge_lto_decl_attributes (tree olddecl, tree newdecl)
 
   tree value = build_int_cst (unsigned_type_node, old_mask & new_mask);
   tree args = build_tree_list (NULL_TREE, value);
-  return tree_cons (get_identifier ("riscv_simd_math_abi_v1"), args, result);
+  result = tree_cons (get_identifier ("riscv_simd_math_abi_v1"), args, result);
+
+  /* The private length ABI is an intersection at LTO boundaries too.  If
+     only one TU opted in, do not let the merged declaration synthesize
+     _len calls that the other TU's runtime/header contract did not ask
+     for.  */
+  bool old_has_len
+    = lookup_attribute ("riscv_simd_math_abi_len", old_attrs) != NULL_TREE;
+  bool new_has_len
+    = lookup_attribute ("riscv_simd_math_abi_len", new_attrs) != NULL_TREE;
+  if (old_has_len && new_has_len)
+    result = tree_cons (get_identifier ("riscv_simd_math_abi_len"),
+			NULL_TREE, result);
+  return result;
 }
 
 static machine_mode
@@ -8027,10 +8089,32 @@ riscv_simd_clone_compute_vecsize_and_simdlen (cgraph_node *node,
   unsigned int count
     = riscv_simd_math_candidates (entry, mask, clone->inbranch,
 				  clone->simdlen, candidates);
-  if (count == 0 || (unsigned int) num >= count)
+  if (count == 0)
     return 0;
 
-  const riscv_simd_math_candidate &candidate = candidates[num];
+  /* Masked clones have a second, length-controlled variant with an
+     explicit leading size_t.  Only in-branch (masked) variants are
+     meaningful for that ABI.  */
+  unsigned int base_count = count;
+  /* The private _len ABI is opt-in.  A header without the explicit
+     riscv_simd_math_abi_len marker must never make a new compiler create
+     _len clones or calls: that would break link against an old libmvec
+     that has no _len symbols.  */
+  bool length_capable
+    = lookup_attribute ("riscv_simd_math_abi_len",
+			DECL_ATTRIBUTES (node->decl)) != NULL_TREE;
+  bool length_variant
+    = clone->inbranch && length_capable && (unsigned int) num >= base_count;
+  if (length_variant)
+    {
+      if ((unsigned int) num >= 2 * base_count)
+	return 0;
+    }
+  else if ((unsigned int) num >= base_count)
+    return 0;
+
+  const riscv_simd_math_candidate &candidate
+    = candidates[num % base_count];
   clone->simdlen = candidate.simdlen;
   clone->vecsize_mangle = candidate.vecsize_mangle;
   clone->vecsize_int = 0;
@@ -8039,7 +8123,11 @@ riscv_simd_clone_compute_vecsize_and_simdlen (cgraph_node *node,
     = clone->inbranch
       ? riscv_simd_math_mask_mode (candidate.vector_mode) : VOIDmode;
   clone->mask_first = clone->inbranch;
-  return num == 0 ? (int) count : 1;
+  clone->length_arg = length_variant;
+  if (num == 0)
+    return clone->inbranch && length_capable
+	   ? (int) (2 * base_count) : (int) base_count;
+  return 1;
 }
 
 /* Generic fixed-length vectors use the standard scalar ABI unless explicitly
@@ -8060,7 +8148,8 @@ riscv_simd_clone_adjust (cgraph_node *node)
   if (node->simdclone->inbranch)
     {
       /* The actual ABI is mask first even though the generic SIMD clone
-	 metadata stores the mask after the data arguments.  */
+	 metadata stores the mask after the data arguments.  A length
+	 variant additionally places size_t before the mask.  */
       tree vtype = riscv_simd_math_vector_type (vector_mode);
       tree mtype
 	= riscv_simd_math_mask_type (riscv_simd_math_mask_mode (vector_mode));
@@ -8071,10 +8160,20 @@ riscv_simd_clone_adjust (cgraph_node *node)
       for (unsigned int i = 0; i < entry->nargs; ++i)
 	parms = tree_cons (NULL_TREE, vtype, parms);
       parms = tree_cons (NULL_TREE, mtype, parms);
+      if (node->simdclone->length_arg)
+	parms = tree_cons (NULL_TREE, size_type_node, parms);
       TYPE_ARG_TYPES (type) = parms;
+      /* Make the vector-register ABI explicit.  The clone was created from a
+	 scalar declaration, so relying only on argument-type inspection can
+	 be defeated by the declaration's generic vector types.  */
+      TYPE_ATTRIBUTES (type)
+	= tree_cons (get_identifier ("riscv_vector_cc"), NULL_TREE,
+		     TYPE_ATTRIBUTES (type));
       for (unsigned int i = 0; i < entry->nargs; ++i)
 	node->simdclone->args[i].vector_type = vtype;
       node->simdclone->args[entry->nargs].vector_type = mtype;
+      if (node->simdclone->length_arg)
+	node->simdclone->mask_first = true;
       return;
     }
   if (rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE)
