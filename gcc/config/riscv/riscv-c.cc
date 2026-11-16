@@ -129,6 +129,15 @@ riscv_cpu_cpp_builtins (cpp_reader *pfile)
 	 advertises compiler syntax support, not the presence of an m1
 	 library; the installed header still decides which entries exist.  */
       builtin_define_with_int_value ("__riscv_simd_math_abi_v1", 1);
+      /* Compiler gate for the expanded 16-bit variant mask, which covers
+	 the LMUL4 and LMUL8 nibbles in addition to LMUL1 and LMUL2.  A
+	 header that does not see this macro must keep using masks of at
+	 most 255: compilers that already recognize the attribute but
+	 predate this gate reject a wider argument instead of ignoring the
+	 extra nibbles.  This advertises compiler syntax support only; the
+	 selected -mrvv-max-lmul still decides which variants may reach the
+	 vectorizer.  */
+      builtin_define_with_int_value ("__riscv_simd_math_abi_v1_lmul8", 1);
       /* Compiler-side opt-in marker for the private length-first masked
 	 ABI.  The private header must also request it; an old header does
 	 not, so no _len clone is synthesized for old runtimes.  */

@@ -8,7 +8,7 @@
 !GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(0x10) ! { dg-error "after 'riscv_simd_math_abi_v1' mask" }
 !GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(1_8) ! { dg-error "after 'riscv_simd_math_abi_v1' mask" }
 !GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(1.0) ! { dg-error "after 'riscv_simd_math_abi_v1' mask" }
-!GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(256) ! { dg-error "outside the range 0 to 255" }
+!GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(65536) ! { dg-error "outside the range 0 to 65535" }
 !GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(51 ! { dg-error "after 'riscv_simd_math_abi_v1' mask" }
 !GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1 ! { dg-error "after 'riscv_simd_math_abi_v1' at" }
 !GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(51) junk ! { dg-error "Unexpected text" }

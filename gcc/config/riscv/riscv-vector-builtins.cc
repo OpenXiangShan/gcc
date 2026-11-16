@@ -3621,6 +3621,48 @@ simd_clone_float32m2_type (void)
 }
 
 tree
+simd_clone_float64m4_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat64m4_t], RVVM4DFmode);
+}
+
+tree
+simd_clone_float32m4_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat32m4_t], RVVM4SFmode);
+}
+
+tree
+simd_clone_float64m8_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat64m8_t], RVVM8DFmode);
+}
+
+tree
+simd_clone_float32m8_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vfloat32m8_t], RVVM8SFmode);
+}
+
+tree
+simd_clone_bool4_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vbool4_t], RVVMF4BImode);
+}
+
+tree
+simd_clone_bool8_type (void)
+{
+  return simd_clone_current_abi_type
+    (abi_vector_types[VECTOR_TYPE_vbool8_t], RVVMF8BImode);
+}
+
+tree
 simd_clone_bool16_type (void)
 {
   return simd_clone_current_abi_type

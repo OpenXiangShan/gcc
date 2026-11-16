@@ -13035,9 +13035,9 @@ gfc_match_gcc_builtin (void)
 	  return MATCH_ERROR;
 	}
 
-      if (mask > 255)
+      if (mask > 65535)
 	{
-	  gfc_error ("%qs mask %d is outside the range 0 to 255 at %C",
+	  gfc_error ("%qs mask %d is outside the range 0 to 65535 at %C",
 		     "riscv_simd_math_abi_v1", mask);
 	  return MATCH_ERROR;
 	}

@@ -8379,15 +8379,46 @@ This downstream declaration attribute describes library ABI availability for
 supported external vector math functions.  It does not change the scalar
 function's calling convention and does not create SIMD declarations by itself;
 use it together with @code{simd} declarations supplied by a matching library.
-The argument is an integer constant in the range 0 through 255.
+The argument is an integer constant in the range 0 through 65535.
 
-The low four bits describe LMUL 1 entries, in order: fixed unmasked,
-scalable unmasked, fixed masked, scalable masked.  The high four bits describe
-the same variants for LMUL 2.  For example, 51 permits both unmasked vector
-length models for both LMULs, and 255 additionally permits masked variants.
-Only supported function names, exact homogeneous scalar prototypes, and
-implemented branch variants are accepted for clone generation.  A mask does
-not promise that the compiler implements an arbitrary function or ABI.
+Each group of four bits describes one LMUL, from the least significant nibble
+upwards: bits 0-3 describe LMUL 1, bits 4-7 LMUL 2, bits 8-11 LMUL 4 and
+bits 12-15 LMUL 8.  Within a nibble the bits are, in order: fixed unmasked,
+scalable unmasked, fixed masked, scalable masked.  For example, 51 permits
+both unmasked vector length models for LMUL 1 and LMUL 2, 255 additionally
+permits their masked variants, 13056 (0x3300) selects only the two unmasked
+LMUL 4 and LMUL 8 variants, and 65535 permits every variant this document
+describes.
+
+The lane count of each variant follows the selected vector length model and,
+for fixed-lane entries, the baseline VLEN of 128 bits: LMUL 1 entries have 2
+lanes for @code{double} and 4 for @code{float}, LMUL 2 entries 4 and 8,
+LMUL 4 entries 8 and 16, and LMUL 8 entries 16 and 32.  Only supported
+function names, exact homogeneous scalar prototypes, and implemented branch
+variants are accepted for clone generation.  A mask does not promise that the
+compiler implements an arbitrary function or ABI.
+
+The LMUL 4 and LMUL 8 variants additionally depend on @code{-mrvv-max-lmul}:
+LMUL 1 and LMUL 2 variants are proposed at every setting, LMUL 4 variants
+only when the maximum LMUL is at least 4, and LMUL 8 variants only when it
+is 8 (the dynamic LMUL settings behave as 8).  With the default
+@code{-mrvv-max-lmul=m1}, and likewise for @code{m2}, the set of generated
+clones is therefore identical to the one an eight-bit mask produces.
+
+Fixed-lane masked variants keep their ABI lane count only at the 128-bit
+baseline.  With a larger minimum vector length (for example
+@code{-march=rv64gcv_zvl256b}) the compiler proposes no fixed masked clones
+at all, because the native RVV type of a fixed symbol would then carry more
+lanes than the ABI lane count; unmasked fixed variants and scalable masked
+variants are unaffected.
+
+The compiler capability macro @code{__riscv_simd_math_abi_v1_lmul8}
+advertises that this compiler accepts the wider mask.  A header that does
+not see it must keep passing masks of at most 255: compilers that already
+recognize @code{riscv_simd_math_abi_v1} but predate the wider mask reject
+such an attribute argument outright instead of ignoring the LMUL 4 and
+LMUL 8 nibbles, so the header has to select the mask width from the
+capability macro.
 
 Multiple explicit masks on a declaration are intersected.  Explicit zero
 permits no variants.  An absent attribute retains the legacy LMUL 2-only

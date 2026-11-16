@@ -873,7 +873,7 @@ static const attribute_spec riscv_gnu_attributes[] =
   {"riscv_vls_cc", 0, 1, false, true, true, true,
    riscv_handle_rvv_vls_cc_attribute, NULL},
   /* Function-declaration metadata for the versioned libmvec SIMD ABI.
-     The argument is an 8-bit variant mask; function support is decided by
+     The argument is a 16-bit variant mask; function support is decided by
      the target's SIMD clone hooks, not while parsing the attribute.  */
   {"riscv_simd_math_abi_v1", 1, 1, true, false, false, false,
    riscv_handle_simd_math_abi_v1_attribute, NULL},
@@ -6573,7 +6573,11 @@ riscv_init_cumulative_args (CUMULATIVE_ARGS *cum, const_tree fntype,
 	{ riscv_vector::simd_clone_float64m1_type (), RVVM1DFmode },
 	{ riscv_vector::simd_clone_float32m1_type (), RVVM1SFmode },
 	{ riscv_vector::simd_clone_float64m2_type (), RVVM2DFmode },
-	{ riscv_vector::simd_clone_float32m2_type (), RVVM2SFmode }
+	{ riscv_vector::simd_clone_float32m2_type (), RVVM2SFmode },
+	{ riscv_vector::simd_clone_float64m4_type (), RVVM4DFmode },
+	{ riscv_vector::simd_clone_float32m4_type (), RVVM4SFmode },
+	{ riscv_vector::simd_clone_float64m8_type (), RVVM8DFmode },
+	{ riscv_vector::simd_clone_float32m8_type (), RVVM8SFmode }
       };
       struct
       {
@@ -6582,7 +6586,9 @@ riscv_init_cumulative_args (CUMULATIVE_ARGS *cum, const_tree fntype,
       } mask_types[] = {
 	{ riscv_vector::simd_clone_bool64_type (), RVVMF64BImode },
 	{ riscv_vector::simd_clone_bool32_type (), RVVMF32BImode },
-	{ riscv_vector::simd_clone_bool16_type (), RVVMF16BImode }
+	{ riscv_vector::simd_clone_bool16_type (), RVVMF16BImode },
+	{ riscv_vector::simd_clone_bool8_type (), RVVMF8BImode },
+	{ riscv_vector::simd_clone_bool4_type (), RVVMF4BImode }
       };
 
       tree ret = TREE_TYPE (fntype);
@@ -7671,10 +7677,11 @@ riscv_fntype_abi_1 (const_tree fntype, bool check_only)
   return default_function_abi;
 }
 
-/* Bits in the public riscv_simd_math_abi_v1 mask.  The low and high
-   nibbles describe LMUL1 and LMUL2 respectively; within a nibble bit 0 is
-   a fixed notinbranch entry, bit 1 a scalable notinbranch entry, bit 2 a
-   fixed inbranch entry and bit 3 a scalable inbranch entry.  */
+/* Bits in the public riscv_simd_math_abi_v1 mask.  The four nibbles
+   describe LMUL1, LMUL2, LMUL4 and LMUL8 respectively, from the least
+   significant nibble upwards; within a nibble bit 0 is a fixed
+   notinbranch entry, bit 1 a scalable notinbranch entry, bit 2 a fixed
+   inbranch entry and bit 3 a scalable inbranch entry.  */
 enum riscv_simd_math_variant
 {
   RISCV_SIMD_MATH_M1_FIXED_N = 1u << 0,
@@ -7684,53 +7691,93 @@ enum riscv_simd_math_variant
   RISCV_SIMD_MATH_M2_FIXED_N = 1u << 4,
   RISCV_SIMD_MATH_M2_SCALABLE_N = 1u << 5,
   RISCV_SIMD_MATH_M2_FIXED_M = 1u << 6,
-  RISCV_SIMD_MATH_M2_SCALABLE_M = 1u << 7
+  RISCV_SIMD_MATH_M2_SCALABLE_M = 1u << 7,
+  RISCV_SIMD_MATH_M4_FIXED_N = 1u << 8,
+  RISCV_SIMD_MATH_M4_SCALABLE_N = 1u << 9,
+  RISCV_SIMD_MATH_M4_FIXED_M = 1u << 10,
+  RISCV_SIMD_MATH_M4_SCALABLE_M = 1u << 11,
+  RISCV_SIMD_MATH_M8_FIXED_N = 1u << 12,
+  RISCV_SIMD_MATH_M8_SCALABLE_N = 1u << 13,
+  RISCV_SIMD_MATH_M8_FIXED_M = 1u << 14,
+  RISCV_SIMD_MATH_M8_SCALABLE_M = 1u << 15,
+  /* Every variant bit this compiler understands.  */
+  RISCV_SIMD_MATH_ALL = 0xffff
 };
 
 /* External libmvec entries accepted by this private ABI.  Each entry can
-   have an m1 and an m2 vector mode, with fixed lane counts at VLEN=128.
-   SUPPORTED_MASK limits the variants that may be requested by metadata;
-   LEGACY_MASK is used when an older header has no ABI attribute and covers
-   only the m2 entries those libraries actually provide.  */
+   have an m1, m2, m4 and m8 vector mode, with fixed lane counts at
+   VLEN=128.  SUPPORTED_MASK limits the variants that may be requested by
+   metadata; LEGACY_MASK is used when an older header has no ABI attribute
+   and covers only the m2 entries those libraries actually provide.  */
 struct riscv_simd_math_entry
 {
   const char *name;
   machine_mode scalar_mode;
   machine_mode m1_vector_mode;
   machine_mode m2_vector_mode;
+  machine_mode m4_vector_mode;
+  machine_mode m8_vector_mode;
   unsigned int nargs;
   unsigned int m1_fixed_lanes;
   unsigned int m2_fixed_lanes;
+  unsigned int m4_fixed_lanes;
+  unsigned int m8_fixed_lanes;
   unsigned int supported_mask;
   unsigned int legacy_mask;
 };
 
 static const riscv_simd_math_entry riscv_simd_math_table[] = {
-  {"log", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
+  {"log", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   1, 2, 4, 8, 16, 0xffff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N
      | RISCV_SIMD_MATH_M2_FIXED_M | RISCV_SIMD_MATH_M2_SCALABLE_M},
-  {"exp", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
+  {"exp", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   1, 2, 4, 8, 16, 0xffff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"sin", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
+  {"sin", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   1, 2, 4, 8, 16, 0xffff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"cos", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff,
+  {"cos", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   1, 2, 4, 8, 16, 0xffff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"pow", DFmode, RVVM1DFmode, RVVM2DFmode, 2, 2, 4, 0xff,
+  {"pow", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   2, 2, 4, 8, 16, 0xffff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
-  {"logf", SFmode, RVVM1SFmode, RVVM2SFmode, 1, 4, 8, 0xff,
+  {"logf", SFmode, RVVM1SFmode, RVVM2SFmode, RVVM4SFmode, RVVM8SFmode,
+   1, 4, 8, 16, 32, 0xffff,
    RISCV_SIMD_MATH_M2_FIXED_N | RISCV_SIMD_MATH_M2_SCALABLE_N},
   /* The 2.45 libmvec exports masked expf entries (M8v/Mxv and M4v/Mxv),
      but the pre-ABI-v1 legacy path had no expf symbol at all.  */
-  {"expf", SFmode, RVVM1SFmode, RVVM2SFmode, 1, 4, 8, 0xff,
+  {"expf", SFmode, RVVM1SFmode, RVVM2SFmode, RVVM4SFmode, RVVM8SFmode,
+   1, 4, 8, 16, 32, 0xffff,
+   0},
+  /* New single-precision functions: available only through the ABI v1
+     handshake, with fixed lanes 4/8/16/32 at VLEN=128.  */
+  {"sinf", SFmode, RVVM1SFmode, RVVM2SFmode, RVVM4SFmode, RVVM8SFmode,
+   1, 4, 8, 16, 32, 0xffff,
+   0},
+  {"cosf", SFmode, RVVM1SFmode, RVVM2SFmode, RVVM4SFmode, RVVM8SFmode,
+   1, 4, 8, 16, 32, 0xffff,
+   0},
+  {"powf", SFmode, RVVM1SFmode, RVVM2SFmode, RVVM4SFmode, RVVM8SFmode,
+   2, 4, 8, 16, 32, 0xffff,
    0},
   /* New function: available only through the ABI v1 handshake.  */
-  {"log10", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff, 0},
+  {"log10", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   1, 2, 4, 8, 16, 0xffff,
+   0},
   /* New function: available only through the ABI v1 handshake.  */
-  {"atan", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff, 0},
+  {"atan", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   1, 2, 4, 8, 16, 0xffff,
+   0},
   /* New function: available only through the ABI v1 handshake.  */
-  {"acos", DFmode, RVVM1DFmode, RVVM2DFmode, 1, 2, 4, 0xff, 0},
+  {"acos", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   1, 2, 4, 8, 16, 0xffff,
+   0},
   /* New function: available only through the ABI v1 handshake.  */
-  {"atan2", DFmode, RVVM1DFmode, RVVM2DFmode, 2, 2, 4, 0xff, 0},
+  {"atan2", DFmode, RVVM1DFmode, RVVM2DFmode, RVVM4DFmode, RVVM8DFmode,
+   2, 2, 4, 8, 16, 0xffff,
+   0},
 };
 
 static const riscv_simd_math_entry *
@@ -7873,10 +7920,18 @@ riscv_simd_math_mask_mode (machine_mode vector_mode)
       return RVVMF64BImode;
     case RVVM2DFmode:
       return RVVMF32BImode;
+    case RVVM4DFmode:
+      return RVVMF16BImode;
+    case RVVM8DFmode:
+      return RVVMF8BImode;
     case RVVM1SFmode:
       return RVVMF32BImode;
     case RVVM2SFmode:
       return RVVMF16BImode;
+    case RVVM4SFmode:
+      return RVVMF8BImode;
+    case RVVM8SFmode:
+      return RVVMF4BImode;
     default:
       return VOIDmode;
     }
@@ -7889,11 +7944,84 @@ riscv_simd_math_vector_type (machine_mode mode)
     return riscv_vector::simd_clone_float64m1_type ();
   if (mode == RVVM2DFmode)
     return riscv_vector::simd_clone_float64m2_type ();
+  if (mode == RVVM4DFmode)
+    return riscv_vector::simd_clone_float64m4_type ();
+  if (mode == RVVM8DFmode)
+    return riscv_vector::simd_clone_float64m8_type ();
   if (mode == RVVM1SFmode)
     return riscv_vector::simd_clone_float32m1_type ();
   if (mode == RVVM2SFmode)
     return riscv_vector::simd_clone_float32m2_type ();
+  if (mode == RVVM4SFmode)
+    return riscv_vector::simd_clone_float32m4_type ();
+  if (mode == RVVM8SFmode)
+    return riscv_vector::simd_clone_float32m8_type ();
   return NULL_TREE;
+}
+
+/* Map a libmvec LMUL onto this entry's vector mode, its fixed lane count at
+   VLEN=128 and the public vecsize mangle digit.  Any of the output pointers
+   may be NULL.  Return false when the entry has no mode for that LMUL.  */
+static bool
+riscv_simd_math_lmul_info (const riscv_simd_math_entry *entry,
+			   unsigned int lmul, machine_mode *vector_mode,
+			   unsigned int *fixed_lanes, char *mangle)
+{
+  machine_mode mode;
+  unsigned int lanes;
+  char digit;
+  switch (lmul)
+    {
+    case 1:
+      mode = entry->m1_vector_mode;
+      lanes = entry->m1_fixed_lanes;
+      digit = '1';
+      break;
+    case 2:
+      mode = entry->m2_vector_mode;
+      lanes = entry->m2_fixed_lanes;
+      digit = '2';
+      break;
+    case 4:
+      mode = entry->m4_vector_mode;
+      lanes = entry->m4_fixed_lanes;
+      digit = '4';
+      break;
+    case 8:
+      mode = entry->m8_vector_mode;
+      lanes = entry->m8_fixed_lanes;
+      digit = '8';
+      break;
+    default:
+      return false;
+    }
+  if (vector_mode)
+    *vector_mode = mode;
+  if (fixed_lanes)
+    *fixed_lanes = lanes;
+  if (mangle)
+    *mangle = digit;
+  return mode != VOIDmode;
+}
+
+/* Decode a vecsize mangle digit back into the LMUL it denotes.  Return 0
+   for a digit this ABI does not implement.  */
+static unsigned int
+riscv_simd_math_mangle_lmul (char mangle)
+{
+  switch (mangle)
+    {
+    case '1':
+      return 1;
+    case '2':
+      return 2;
+    case '4':
+      return 4;
+    case '8':
+      return 8;
+    default:
+      return 0;
+    }
 }
 
 static tree
@@ -7907,6 +8035,10 @@ riscv_simd_math_mask_type (machine_mode mask_mode)
       return riscv_vector::simd_clone_bool32_type ();
     case RVVMF16BImode:
       return riscv_vector::simd_clone_bool16_type ();
+    case RVVMF8BImode:
+      return riscv_vector::simd_clone_bool8_type ();
+    case RVVMF4BImode:
+      return riscv_vector::simd_clone_bool4_type ();
     default:
       return NULL_TREE;
     }
@@ -7944,7 +8076,7 @@ static bool
 riscv_simd_math_abi_mask (tree decl, unsigned int *mask, bool *present)
 {
   *present = false;
-  unsigned int result = 0xff;
+  unsigned int result = RISCV_SIMD_MATH_ALL;
   for (tree attr = lookup_attribute ("riscv_simd_math_abi_v1",
 				     DECL_ATTRIBUTES (decl));
        attr;
@@ -7954,7 +8086,8 @@ riscv_simd_math_abi_mask (tree decl, unsigned int *mask, bool *present)
       tree value = (args && TREE_CODE (args) == TREE_LIST)
 		   ? TREE_VALUE (args) : NULL_TREE;
       if (!value || TREE_CODE (value) != INTEGER_CST
-	  || !tree_fits_uhwi_p (value) || tree_to_uhwi (value) > 255)
+	  || !tree_fits_uhwi_p (value)
+	  || tree_to_uhwi (value) > RISCV_SIMD_MATH_ALL)
 	return false;
       unsigned int bits = tree_to_uhwi (value);
       if (!*present)
@@ -7987,7 +8120,7 @@ riscv_simd_math_candidates (const riscv_simd_math_entry *entry,
 {
   bool scalable_mode = rvv_vector_bits == RVV_VECTOR_BITS_SCALABLE;
   unsigned int count = 0;
-  for (unsigned int bit = 0; bit < 8; ++bit)
+  for (unsigned int bit = 0; bit < 16; ++bit)
     {
       if (!(mask & (1u << bit)))
 	continue;
@@ -7997,11 +8130,22 @@ riscv_simd_math_candidates (const riscv_simd_math_entry *entry,
       if (is_masked != inbranch || is_scalable != scalable_mode)
 	continue;
 
-      bool is_m1 = bit < 4;
-      machine_mode vector_mode
-	= is_m1 ? entry->m1_vector_mode : entry->m2_vector_mode;
-      unsigned int fixed_lanes
-	= is_m1 ? entry->m1_fixed_lanes : entry->m2_fixed_lanes;
+      /* Nibbles 0..3 hold LMUL1, LMUL2, LMUL4 and LMUL8 entries.  */
+      unsigned int lmul = 1u << (bit >> 2);
+      /* Only propose the wide variants the selected -mrvv-max-lmul can
+	 vectorize with.  LMUL1 and LMUL2 entries stay available at every
+	 setting so that the default configuration's candidate list is
+	 unchanged; a narrower maximum cannot vectorize with them anyway.  */
+      if (lmul >= 4 && lmul > (unsigned int) TARGET_MAX_LMUL)
+	continue;
+
+      machine_mode vector_mode;
+      unsigned int fixed_lanes;
+      char mangle;
+      if (!riscv_simd_math_lmul_info (entry, lmul, &vector_mode, &fixed_lanes,
+				      &mangle))
+	continue;
+
       poly_uint64 simdlen
 	= is_scalable
 	  ? poly_uint64 (GET_MODE_NUNITS (vector_mode))
@@ -8031,7 +8175,7 @@ riscv_simd_math_candidates (const riscv_simd_math_entry *entry,
       gcc_assert (count < 4);
       candidates[count].vector_mode = vector_mode;
       candidates[count].simdlen = simdlen;
-      candidates[count].vecsize_mangle = is_m1 ? '1' : '2';
+      candidates[count].vecsize_mangle = mangle;
       count++;
     }
   return count;
@@ -8134,8 +8278,9 @@ riscv_simd_clone_compute_vecsize_and_simdlen (cgraph_node *node,
 
 /* Generic fixed-length vectors use the standard scalar ABI unless explicitly
    marked with the VLS vector calling convention.  ABI_VLEN 128 maps an
-   m1 fixed argument/return (128 bits) to v8 and an m2 fixed one (256 bits)
-   to v8-v9, matching the public native-vector ABI.  */
+   m1 fixed argument/return (128 bits) to v8, an m2 fixed one (256 bits) to
+   v8-v9, and the m4/m8 variants to the matching wider vector register
+   groups, following the public native-vector ABI.  */
 static void
 riscv_simd_clone_adjust (cgraph_node *node)
 {
@@ -8143,9 +8288,12 @@ riscv_simd_clone_adjust (cgraph_node *node)
   const riscv_simd_math_entry *entry
     = riscv_simd_math_lookup (node->simdclone->origin->decl);
   gcc_assert (entry);
-  machine_mode vector_mode
-    = node->simdclone->vecsize_mangle == '1'
-      ? entry->m1_vector_mode : entry->m2_vector_mode;
+  unsigned int lmul
+    = riscv_simd_math_mangle_lmul (node->simdclone->vecsize_mangle);
+  machine_mode vector_mode = VOIDmode;
+  if (!lmul
+      || !riscv_simd_math_lmul_info (entry, lmul, &vector_mode, NULL, NULL))
+    gcc_unreachable ();
 
   if (node->simdclone->inbranch)
     {
@@ -8218,13 +8366,15 @@ riscv_simd_clone_usable (cgraph_node *node, machine_mode mode)
       || !riscv_simd_math_scalar_mode_supported (entry->scalar_mode))
     return -1;
 
-  char mangle = node->simdclone->vecsize_mangle;
-  if (mangle != '1' && mangle != '2')
+  unsigned int lmul
+    = riscv_simd_math_mangle_lmul (node->simdclone->vecsize_mangle);
+  if (!lmul || (lmul >= 4 && lmul > (unsigned int) TARGET_MAX_LMUL))
     return -1;
-  machine_mode vector_mode
-    = mangle == '1' ? entry->m1_vector_mode : entry->m2_vector_mode;
-  unsigned int fixed_lanes
-    = mangle == '1' ? entry->m1_fixed_lanes : entry->m2_fixed_lanes;
+  machine_mode vector_mode;
+  unsigned int fixed_lanes;
+  if (!riscv_simd_math_lmul_info (entry, lmul, &vector_mode, &fixed_lanes,
+				  NULL))
+    return -1;
 
   /* A stale ABI type from target-option initialization must not reach the
      vectorizer transform, where a mismatched unroll factor can be zero.  */
@@ -8369,10 +8519,10 @@ riscv_handle_simd_math_abi_v1_attribute (tree *, tree name, tree args,
 
   tree value = TREE_VALUE (args);
   if (!value || TREE_CODE (value) != INTEGER_CST
-      || !tree_fits_uhwi_p (value) || tree_to_uhwi (value) > 255)
+      || !tree_fits_uhwi_p (value) || tree_to_uhwi (value) > 65535)
     {
       error ("attribute %qE argument must be an integer constant in the "
-	     "range 0 to 255", name);
+	     "range 0 to 65535", name);
       return NULL_TREE;
     }
 

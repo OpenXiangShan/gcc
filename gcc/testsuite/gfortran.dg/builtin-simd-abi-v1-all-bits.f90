@@ -1,9 +1,11 @@
 ! { dg-do compile { target riscv64*-*-linux* } }
 ! { dg-additional-options "-O2 -nostdinc -march=rv64gcv -mabi=lp64d -fdump-ipa-simdclone" }
 
-! The mask is an eight-bit value; 255 is the largest valid mask.  A bare
-! simd directive requests both branches, and all bits permit both LMULs,
-! so exactly four clones must be created.
+! Mask 255 selects the LMUL1 and LMUL2 nibbles.  A bare simd directive
+! requests both branches, and all bits in those two nibbles are set, so
+! exactly four clones must be created.  The default -mrvv-max-lmul=m1 does
+! not propose LMUL4 or LMUL8 clones, so the wider 16-bit mask does not add
+! any clone here.
 
 !GCC$ builtin (log) attributes simd riscv_simd_math_abi_v1(255)
 
