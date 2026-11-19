@@ -8489,6 +8489,7 @@
   "TARGET_VECTOR"
   "vrgather.v%o4\t%0,%3,%4%p1"
   [(set_attr "type" "vgather")
+   (set_attr "khv3_gather_scalar" "yes")
    (set_attr "mode" "<MODE>")])
 
 ;; vrgatherei16

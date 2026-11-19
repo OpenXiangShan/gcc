@@ -11846,6 +11846,10 @@ riscv_memory_move_cost (machine_mode mode, reg_class_t rclass, bool in)
 static int
 riscv_issue_rate (void)
 {
+  /* Use the frontend dispatch width as a scheduler cap, not as a
+     count of vector execution lanes.  */
+  if (riscv_microarchitecture == kunminghuv3_ver1)
+    return 8;
   return tune_param->issue_rate;
 }
 
@@ -13462,6 +13466,18 @@ riscv_option_override (void)
   SET_OPTION_IF_UNSET (&global_options, &global_options_set,
 		       param_cycle_accurate_model,
 		       0);
+
+  /* These are CPU defaults, independent of the scheduling tune.  */
+  if (riscv_cpu_string
+      && strcmp (riscv_cpu_string, "xiangshan-kunminghuv3-ver1") == 0)
+    {
+      SET_OPTION_IF_UNSET (&global_options, &global_options_set,
+			   rvv_max_lmul, RVV_DYNAMIC);
+      SET_OPTION_IF_UNSET (&global_options, &global_options_set,
+			   gpr2vr_cost, 0);
+      SET_OPTION_IF_UNSET (&global_options, &global_options_set,
+			   fpr2vr_cost, 0);
+    }
 
   /* Function to allocate machine-dependent function status.  */
   init_machine_status = &riscv_init_machine_status;

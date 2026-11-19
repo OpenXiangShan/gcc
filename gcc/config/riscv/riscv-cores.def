@@ -50,6 +50,7 @@ RISCV_TUNE("xt-c920", generic, generic_ooo_tune_info)
 RISCV_TUNE("xt-c920v2", generic, generic_ooo_tune_info)
 RISCV_TUNE("xiangshan-nanhu", xiangshan, xiangshan_nanhu_tune_info)
 RISCV_TUNE("xiangshan-kunminghu", xiangshan, generic_ooo_tune_info)
+RISCV_TUNE("xiangshan-kunminghuv3-ver1", kunminghuv3_ver1, generic_ooo_tune_info)
 RISCV_TUNE("spacemit-x60", spacemit_x60, spacemit_x60_tune_info)
 RISCV_TUNE("generic-ooo", generic_ooo, generic_ooo_tune_info)
 RISCV_TUNE("size", generic, optimize_size_tune_info)
@@ -170,6 +171,8 @@ RISCV_CORE("xiangshan-kunminghu",   "rv64imafdcbvh_sdtrig_sha_shcounterenw_"
 			      "zihpm_zimop_zkn_zknd_zkne_zknh_zksed_zksh_zkt_zvbb_zvfh_"
 			      "zvfhmin_zvkt_zvl128b_zvl32b_zvl64b",
 			      "xiangshan-kunminghu")
+
+RISCV_CORE("xiangshan-kunminghuv3-ver1", "rva23u64", "xiangshan-kunminghuv3-ver1")
 
 RISCV_CORE("mips-p8700",      "rv64imfd_zicsr_zifencei_zalrsc_zba_zbb",
 			      "mips-p8700")
