@@ -638,6 +638,32 @@ static const struct riscv_tune_param xiangshan_nanhu_tune_info = {
   true,						/* prefer-agnostic.  */
 };
 
+/* Costs shared by the Kunminghu tunes.  Kunminghu V3 ver1 models its
+   pipeline separately in kunminghuv3-ver1.md.  */
+static const struct riscv_tune_param xiangshan_kunminghu_tune_info = {
+  {COSTS_N_INSNS (2), COSTS_N_INSNS (2)},	/* fp_add */
+  {COSTS_N_INSNS (3), COSTS_N_INSNS (3)},	/* fp_mul */
+  {COSTS_N_INSNS (8), COSTS_N_INSNS (13)},	/* fp_div */
+  {COSTS_N_INSNS (3), COSTS_N_INSNS (3)},	/* int_mul */
+  {COSTS_N_INSNS (14), COSTS_N_INSNS (22)},	/* int_div */
+  8,						/* issue_rate */
+  3,						/* branch_cost */
+  4,						/* memory_cost */
+  3,						/* fmv_cost */
+  true,						/* slow_unaligned_access */
+  false,					/* vector_unaligned_access */
+  false,					/* use_divmod_expansion */
+  false,					/* overlap_op_by_pieces */
+  true,						/* use_zero_stride_load */
+  false,					/* speculative_sched_vsetvl */
+  RISCV_FUSE_ZEXTW | RISCV_FUSE_ZEXTH,          /* fusible_ops */
+  NULL,						/* vector cost */
+  NULL,						/* function_align */
+  NULL,						/* jump_align */
+  NULL,						/* loop_align */
+  true,						/* prefer-agnostic.  */
+};
+
 /* Costs to use when optimizing for a generic ooo profile.  */
 static const struct riscv_tune_param generic_ooo_tune_info = {
   {COSTS_N_INSNS (2), COSTS_N_INSNS (2)},	/* fp_add */
@@ -3938,7 +3964,7 @@ riscv_legitimize_move (machine_mode mode, rtx dest, rtx src)
 	     already we can just elide the nop move here and be done.  */
 	  if (need_int_reg_p)
 	    emit_move_insn (dest, gen_lowpart (GET_MODE (dest), int_reg));
-	  else if (!rtx_equal_p (dest, int_reg)) 
+	  else if (!rtx_equal_p (dest, int_reg))
 	    emit_move_insn (dest, int_reg);
 	  return true;
 	}
